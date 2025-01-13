@@ -10,7 +10,7 @@ import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol
 import "./interfaces/IUniswapV2Router02.sol";
 import "./interfaces/IUniswapV2Factory.sol";
 
-contract Cipher is
+contract CenterFruit is
     Initializable,
     AccessControlUpgradeable,
     ERC20Upgradeable,
@@ -25,13 +25,11 @@ contract Cipher is
 
     address public constant ZERO_ADDRESS = address(0);
     address public constant DEAD_ADDRESS = address(0xdEaD);
-    uint256 public cooldownPeriodBlocks;
 
     address public uniswapV2Pair;
     address public operationsWallet;
 
     bool public isLimitsEnabled;
-    bool public isCooldownEnabled;
     bool public isTaxEnabled;
     bool private inSwapBack;
     bool public isLaunched;
@@ -62,7 +60,7 @@ contract Cipher is
     event SetOperationsWallet(address newWallet, address oldWallet);
     event SetmarketingWallet(address newWallet, address oldWallet);
     event SetLimitsEnabled(bool status);
-    event SetCooldownEnabled(bool status);
+
     event SetTaxesEnabled(bool status);
     event SetMaxBuy(uint256 amount);
     event SetMaxSell(uint256 amount);
@@ -104,8 +102,8 @@ contract Cipher is
     }
 
     function initialize(address _operationsWallet) external initializer {
-        __ERC20_init("Cipher Protocol", "CIPHER");
-        __ERC20Permit_init("Cipher Protocol");
+        __ERC20_init("Center Fruit", "CENTER");
+        __ERC20Permit_init("Center Fruit");
         __AccessControl_init();
         __UUPSUpgradeable_init();
         __ReentrancyGuard_init();
@@ -118,7 +116,6 @@ contract Cipher is
 
         uint256 totalSupply = 100_000_000 ether;
 
-        cooldownPeriodBlocks = 3;
         operationsWallet = _operationsWallet;
 
         maxBuy = (totalSupply * 70) / DENM; // 0.7%
@@ -127,7 +124,6 @@ contract Cipher is
         swapTokensAtAmount = (totalSupply * 20) / DENM; // 0.2%
 
         isLimitsEnabled = true;
-        isCooldownEnabled = true;
         isTaxEnabled = true;
 
         buyFee = 3000;
@@ -216,16 +212,6 @@ contract Cipher is
 
     /*
      * /////////////////////////////////////////////////////////////////
-     * @dev Remove the cooldown
-     * /////////////////////////////////////////////////////////////////
-     */
-    function RemoveCooldown() external onlyRole(MANAGER_ROLE) {
-        isCooldownEnabled = false;
-        emit SetCooldownEnabled(false);
-    }
-
-    /*
-     * /////////////////////////////////////////////////////////////////
      * @dev Remove the taxes
      * @dev Emit SetTaxesEnabled event
      * /////////////////////////////////////////////////////////////////
@@ -233,35 +219,6 @@ contract Cipher is
     function setTaxesEnabled(bool value) external onlyRole(MANAGER_ROLE) {
         isTaxEnabled = value;
         emit SetTaxesEnabled(value);
-    }
-
-    /*
-     * /////////////////////////////////////////////////////////////////
-     * @dev Set swap tokens at amount
-     * /////////////////////////////////////////////////////////////////
-     */
-    function setSwapTokensAtAmount(
-        uint256 amount
-    ) external onlyRole(MANAGER_ROLE) {
-        uint256 _totalSupply = totalSupply();
-        require(amount >= (_totalSupply * 10) / DENM, AmountTooLow()); // 0.1%
-        require(amount <= (_totalSupply * 200) / DENM, AmountTooHigh()); // 2%
-        uint256 oldValue = swapTokensAtAmount;
-        swapTokensAtAmount = amount;
-        emit SetSwapTokensAtAmount(amount, oldValue);
-    }
-
-    /*
-     * /////////////////////////////////////////////////////////////////
-     * @dev Set automatic market maker pair
-     * /////////////////////////////////////////////////////////////////
-     */
-    function setAutomaticMarketMakerPair(
-        address pair,
-        bool value
-    ) external onlyRole(MANAGER_ROLE) {
-        require(!automatedMarketMakerPairs[pair], AMMAlreadySet());
-        _setAutomatedMarketMakerPair(pair, value);
     }
 
     /*
@@ -296,6 +253,14 @@ contract Cipher is
         emit SetTransferFees(newTransferFee, oldTransferFee);
     }
 
+    /*
+     * /////////////////////////////////////////////////////////////////
+     * @dev Set the limits (max buy, max sell, max wallet)
+     * @param newMaxBuy The new max buy value
+     * @param newMaxSell The new max sell value
+     * @param newMaxWallet The new max wallet value
+     * /////////////////////////////////////////////////////////////////
+     */
     function setLimits(
         uint256 newMaxBuy,
         uint256 newMaxSell,
@@ -316,6 +281,35 @@ contract Cipher is
         require(newMaxWallet <= (_totalSupply * 500) / DENM, AmountTooHigh()); // 5%
         maxWallet = newMaxWallet;
         emit SetMaxWallet(newMaxWallet);
+    }
+
+    /*
+     * /////////////////////////////////////////////////////////////////
+     * @dev Set swap tokens at amount
+     * /////////////////////////////////////////////////////////////////
+     */
+    function setSwapTokensAtAmount(
+        uint256 amount
+    ) external onlyRole(MANAGER_ROLE) {
+        uint256 _totalSupply = totalSupply();
+        require(amount >= (_totalSupply * 10) / DENM, AmountTooLow()); // 0.1%
+        require(amount <= (_totalSupply * 200) / DENM, AmountTooHigh()); // 2%
+        uint256 oldValue = swapTokensAtAmount;
+        swapTokensAtAmount = amount;
+        emit SetSwapTokensAtAmount(amount, oldValue);
+    }
+
+    /*
+     * /////////////////////////////////////////////////////////////////
+     * @dev Set automatic market maker pair
+     * /////////////////////////////////////////////////////////////////
+     */
+    function setAutomaticMarketMakerPair(
+        address pair,
+        bool value
+    ) external onlyRole(MANAGER_ROLE) {
+        require(!automatedMarketMakerPairs[pair], AMMAlreadySet());
+        _setAutomatedMarketMakerPair(pair, value);
     }
 
     /*
@@ -386,7 +380,7 @@ contract Cipher is
     /*
      * /////////////////////////////////////////////////////////////////
      * @dev Override the _update function
-     * @dev Handles the tax, limits and cooldown
+     * @dev Handles the tax, limits and swap tokens
      * /////////////////////////////////////////////////////////////////
      */
     function _update(
@@ -394,8 +388,6 @@ contract Cipher is
         address to,
         uint256 amount
     ) internal virtual override(ERC20Upgradeable) {
-        address origin = tx.origin;
-
         require(
             isLaunched ||
                 isExcludedFromLimits[from] ||
@@ -408,20 +400,6 @@ contract Cipher is
             !inSwapBack &&
             !(isExcludedFromLimits[from] || isExcludedFromLimits[to]);
         if (isLimited) {
-            if (isCooldownEnabled) {
-                if (to != address(uniswapV2Router) && to != uniswapV2Pair) {
-                    require(
-                        _holderLastTransferBlock[origin] +
-                            cooldownPeriodBlocks <
-                            block.number + cooldownPeriodBlocks &&
-                            _holderLastTransferBlock[to] < block.number,
-                        TransferDelay()
-                    );
-                    _holderLastTransferBlock[origin] = block.number;
-                    _holderLastTransferBlock[to] = block.number;
-                }
-            }
-
             if (automatedMarketMakerPairs[from] && !isExcludedFromLimits[to]) {
                 require(amount <= maxBuy, MaxBuyAmountExceed());
                 require(
