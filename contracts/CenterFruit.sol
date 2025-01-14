@@ -34,9 +34,6 @@ contract CenterFruit is
     bool private inSwapBack;
     bool public isLaunched;
 
-    uint256 public launchBlock;
-    uint256 public launchTime;
-
     uint256 private lastSwapBackExecutionBlock;
 
     uint256 public maxBuy;
@@ -54,13 +51,11 @@ contract CenterFruit is
     mapping(address => bool) public isExcludedFromFees;
     mapping(address => bool) public isExcludedFromLimits;
     mapping(address => bool) public automatedMarketMakerPairs;
-    mapping(address => uint256) private _holderLastTransferBlock;
 
     event Launch();
     event SetOperationsWallet(address newWallet, address oldWallet);
     event SetmarketingWallet(address newWallet, address oldWallet);
     event SetLimitsEnabled(bool status);
-
     event SetTaxesEnabled(bool status);
     event SetMaxBuy(uint256 amount);
     event SetMaxSell(uint256 amount);
@@ -75,7 +70,6 @@ contract CenterFruit is
     event WithdrawStuckTokens(address token, uint256 amount);
 
     error AlreadyLaunched();
-    error AddressZero();
     error AmountTooLow();
     error AmountTooHigh();
     error FeeTooHigh();
@@ -83,12 +77,13 @@ contract CenterFruit is
     error NoNativeTokens();
     error NoTokens();
     error FailedToWithdrawNativeTokens();
-    error BotDetected();
-    error TransferDelay();
     error MaxBuyAmountExceed();
     error MaxSellAmountExceed();
     error MaxWalletAmountExceed();
     error NotLaunched();
+    error InsufficientToken();
+    error ZeroTokenAmount();
+    error ZeroEthAmount();
 
     modifier lockSwapBack() {
         inSwapBack = true;
@@ -126,9 +121,9 @@ contract CenterFruit is
         isLimitsEnabled = true;
         isTaxEnabled = true;
 
-        buyFee = 3000;
-        sellFee = 3000;
-        transferFee = 3000;
+        buyFee = 1000;
+        sellFee = 1000;
+        transferFee = 1000;
 
         uniswapV2Router = IUniswapV2Router02(
             0x4752ba5DBc23f44D87826276BF6Fd6b1C372aD24
@@ -175,8 +170,12 @@ contract CenterFruit is
      * /////////////////////////////////////////////////////////////////
      */
 
-    function launch() external onlyRole(MANAGER_ROLE) nonReentrant {
+    function launch(
+        uint256 tokenAmount
+    ) external payable onlyRole(MANAGER_ROLE) nonReentrant {
         require(!isLaunched, AlreadyLaunched());
+        require(tokenAmount > 0, ZeroTokenAmount());
+        require(msg.value > 0, ZeroEthAmount());
 
         uniswapV2Pair = IUniswapV2Factory(uniswapV2Router.factory()).createPair(
                 address(this),
@@ -184,19 +183,28 @@ contract CenterFruit is
             );
 
         _setAutomatedMarketMakerPair(uniswapV2Pair, true);
+
+        require(balanceOf(msg.sender) >= tokenAmount, InsufficientToken());
+
+        _transfer(msg.sender, address(this), tokenAmount);
+
         _approve(address(this), address(uniswapV2Router), type(uint256).max);
-        uniswapV2Router.addLiquidityETH{value: address(this).balance}(
+
+        uniswapV2Router.addLiquidityETH{value: msg.value}(
             address(this),
-            balanceOf(address(this)),
+            tokenAmount,
             0,
             0,
             msg.sender,
             block.timestamp
         );
-        IERC20(uniswapV2Pair).approve(address(uniswapV2Router), type(uint).max);
+
+        IERC20(uniswapV2Pair).approve(
+            address(uniswapV2Router),
+            type(uint256).max
+        );
+
         isLaunched = true;
-        launchBlock = block.number;
-        launchTime = block.timestamp;
         emit Launch();
     }
 
@@ -208,6 +216,19 @@ contract CenterFruit is
     function RemoveLimits() external onlyRole(MANAGER_ROLE) {
         isLimitsEnabled = false;
         emit SetLimitsEnabled(false);
+    }
+
+    /*
+     * /////////////////////////////////////////////////////////////////
+     * @dev Set the operations wallet
+     * /////////////////////////////////////////////////////////////////
+     */
+    function setOperationsWallet(
+        address newWallet
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        address oldWallet = operationsWallet;
+        operationsWallet = newWallet;
+        emit SetOperationsWallet(newWallet, oldWallet);
     }
 
     /*
@@ -234,19 +255,19 @@ contract CenterFruit is
         uint256 newSellFee,
         uint256 newTransferFee
     ) external onlyRole(MANAGER_ROLE) {
-        // Reduce buy fee
+        // Set Buy Fee
         require(newBuyFee <= MAX_FEE, FeeTooHigh());
         uint256 oldBuyFee = buyFee;
         buyFee = newBuyFee;
         emit SetBuyFees(newBuyFee, oldBuyFee);
 
-        // Reduce sell fee
+        // Set Sell Fee
         require(newSellFee <= MAX_FEE, FeeTooHigh());
         uint256 oldSellFee = sellFee;
         sellFee = newSellFee;
         emit SetSellFees(newSellFee, oldSellFee);
 
-        // Reduce transfer fee
+        // Set Transfer Fee
         require(newTransferFee <= MAX_FEE, FeeTooHigh());
         uint256 oldTransferFee = transferFee;
         transferFee = newTransferFee;

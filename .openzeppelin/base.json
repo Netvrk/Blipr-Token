@@ -5,6 +5,16 @@
       "address": "0xC34dbb7735d574ABf98f38fB0F20134092e89df0",
       "txHash": "0x2c97637b193fc0f86d125f984a30e3a67bd6fb40dd3a4576fde8f14308724590",
       "kind": "uups"
+    },
+    {
+      "address": "0x63669043341cC2D6d74B6f25c9a3FE437aAEf0e5",
+      "txHash": "0x5514560b2b5351c1c96016476684b46629b89e95a2f7fb522caa11b73d98a355",
+      "kind": "uups"
+    },
+    {
+      "address": "0x6251fD098A719c6b69b3DFdC95bfA9f0FA2F4A05",
+      "txHash": "0xfe2f9c800bcde4838600860ea58872c8aedc90c5502b9470f437c5ed8e9e531d",
+      "kind": "uups"
     }
   ],
   "impls": {
@@ -882,6 +892,932 @@
             "numberOfBytes": "8"
           },
           "t_contract(IUniswapV2Router02)9640": {
+            "label": "contract IUniswapV2Router02",
+            "numberOfBytes": "20"
+          }
+        },
+        "namespaces": {
+          "erc7201:openzeppelin.storage.ReentrancyGuard": [
+            {
+              "contract": "ReentrancyGuardUpgradeable",
+              "label": "_status",
+              "type": "t_uint256",
+              "src": "@openzeppelin\\contracts-upgradeable\\utils\\ReentrancyGuardUpgradeable.sol:43",
+              "offset": 0,
+              "slot": "0"
+            }
+          ],
+          "erc7201:openzeppelin.storage.Nonces": [
+            {
+              "contract": "NoncesUpgradeable",
+              "label": "_nonces",
+              "type": "t_mapping(t_address,t_uint256)",
+              "src": "@openzeppelin\\contracts-upgradeable\\utils\\NoncesUpgradeable.sol:17",
+              "offset": 0,
+              "slot": "0"
+            }
+          ],
+          "erc7201:openzeppelin.storage.EIP712": [
+            {
+              "contract": "EIP712Upgradeable",
+              "label": "_hashedName",
+              "type": "t_bytes32",
+              "src": "@openzeppelin\\contracts-upgradeable\\utils\\cryptography\\EIP712Upgradeable.sol:39",
+              "offset": 0,
+              "slot": "0"
+            },
+            {
+              "contract": "EIP712Upgradeable",
+              "label": "_hashedVersion",
+              "type": "t_bytes32",
+              "src": "@openzeppelin\\contracts-upgradeable\\utils\\cryptography\\EIP712Upgradeable.sol:41",
+              "offset": 0,
+              "slot": "1"
+            },
+            {
+              "contract": "EIP712Upgradeable",
+              "label": "_name",
+              "type": "t_string_storage",
+              "src": "@openzeppelin\\contracts-upgradeable\\utils\\cryptography\\EIP712Upgradeable.sol:43",
+              "offset": 0,
+              "slot": "2"
+            },
+            {
+              "contract": "EIP712Upgradeable",
+              "label": "_version",
+              "type": "t_string_storage",
+              "src": "@openzeppelin\\contracts-upgradeable\\utils\\cryptography\\EIP712Upgradeable.sol:44",
+              "offset": 0,
+              "slot": "3"
+            }
+          ],
+          "erc7201:openzeppelin.storage.ERC20": [
+            {
+              "contract": "ERC20Upgradeable",
+              "label": "_balances",
+              "type": "t_mapping(t_address,t_uint256)",
+              "src": "@openzeppelin\\contracts-upgradeable\\token\\ERC20\\ERC20Upgradeable.sol:33",
+              "offset": 0,
+              "slot": "0"
+            },
+            {
+              "contract": "ERC20Upgradeable",
+              "label": "_allowances",
+              "type": "t_mapping(t_address,t_mapping(t_address,t_uint256))",
+              "src": "@openzeppelin\\contracts-upgradeable\\token\\ERC20\\ERC20Upgradeable.sol:35",
+              "offset": 0,
+              "slot": "1"
+            },
+            {
+              "contract": "ERC20Upgradeable",
+              "label": "_totalSupply",
+              "type": "t_uint256",
+              "src": "@openzeppelin\\contracts-upgradeable\\token\\ERC20\\ERC20Upgradeable.sol:37",
+              "offset": 0,
+              "slot": "2"
+            },
+            {
+              "contract": "ERC20Upgradeable",
+              "label": "_name",
+              "type": "t_string_storage",
+              "src": "@openzeppelin\\contracts-upgradeable\\token\\ERC20\\ERC20Upgradeable.sol:39",
+              "offset": 0,
+              "slot": "3"
+            },
+            {
+              "contract": "ERC20Upgradeable",
+              "label": "_symbol",
+              "type": "t_string_storage",
+              "src": "@openzeppelin\\contracts-upgradeable\\token\\ERC20\\ERC20Upgradeable.sol:40",
+              "offset": 0,
+              "slot": "4"
+            }
+          ],
+          "erc7201:openzeppelin.storage.AccessControl": [
+            {
+              "contract": "AccessControlUpgradeable",
+              "label": "_roles",
+              "type": "t_mapping(t_bytes32,t_struct(RoleData)24_storage)",
+              "src": "@openzeppelin\\contracts-upgradeable\\access\\AccessControlUpgradeable.sol:61",
+              "offset": 0,
+              "slot": "0"
+            }
+          ],
+          "erc7201:openzeppelin.storage.Initializable": [
+            {
+              "contract": "Initializable",
+              "label": "_initialized",
+              "type": "t_uint64",
+              "src": "@openzeppelin\\contracts-upgradeable\\proxy\\utils\\Initializable.sol:69",
+              "offset": 0,
+              "slot": "0"
+            },
+            {
+              "contract": "Initializable",
+              "label": "_initializing",
+              "type": "t_bool",
+              "src": "@openzeppelin\\contracts-upgradeable\\proxy\\utils\\Initializable.sol:73",
+              "offset": 8,
+              "slot": "0"
+            }
+          ]
+        }
+      }
+    },
+    "a09b815d07bff85252a1a4ef937a06bf38e964ec71fa8d4385e87a3de724d5b9": {
+      "address": "0xD4312825033Ef01A5F7CFb9F239000A238508D97",
+      "txHash": "0x432c284c02fa8591cb74729cd9b6cdbca4c296c53e058404c4d0a63068d2ab31",
+      "layout": {
+        "solcVersion": "0.8.28",
+        "storage": [
+          {
+            "label": "uniswapV2Router",
+            "offset": 0,
+            "slot": "0",
+            "type": "t_contract(IUniswapV2Router02)9569",
+            "contract": "CenterFruit",
+            "src": "contracts\\CenterFruit.sol:24"
+          },
+          {
+            "label": "uniswapV2Pair",
+            "offset": 0,
+            "slot": "1",
+            "type": "t_address",
+            "contract": "CenterFruit",
+            "src": "contracts\\CenterFruit.sol:29"
+          },
+          {
+            "label": "operationsWallet",
+            "offset": 0,
+            "slot": "2",
+            "type": "t_address",
+            "contract": "CenterFruit",
+            "src": "contracts\\CenterFruit.sol:30"
+          },
+          {
+            "label": "isLimitsEnabled",
+            "offset": 20,
+            "slot": "2",
+            "type": "t_bool",
+            "contract": "CenterFruit",
+            "src": "contracts\\CenterFruit.sol:32"
+          },
+          {
+            "label": "isTaxEnabled",
+            "offset": 21,
+            "slot": "2",
+            "type": "t_bool",
+            "contract": "CenterFruit",
+            "src": "contracts\\CenterFruit.sol:33"
+          },
+          {
+            "label": "inSwapBack",
+            "offset": 22,
+            "slot": "2",
+            "type": "t_bool",
+            "contract": "CenterFruit",
+            "src": "contracts\\CenterFruit.sol:34"
+          },
+          {
+            "label": "isLaunched",
+            "offset": 23,
+            "slot": "2",
+            "type": "t_bool",
+            "contract": "CenterFruit",
+            "src": "contracts\\CenterFruit.sol:35"
+          },
+          {
+            "label": "lastSwapBackExecutionBlock",
+            "offset": 0,
+            "slot": "3",
+            "type": "t_uint256",
+            "contract": "CenterFruit",
+            "src": "contracts\\CenterFruit.sol:37"
+          },
+          {
+            "label": "maxBuy",
+            "offset": 0,
+            "slot": "4",
+            "type": "t_uint256",
+            "contract": "CenterFruit",
+            "src": "contracts\\CenterFruit.sol:39"
+          },
+          {
+            "label": "maxSell",
+            "offset": 0,
+            "slot": "5",
+            "type": "t_uint256",
+            "contract": "CenterFruit",
+            "src": "contracts\\CenterFruit.sol:40"
+          },
+          {
+            "label": "maxWallet",
+            "offset": 0,
+            "slot": "6",
+            "type": "t_uint256",
+            "contract": "CenterFruit",
+            "src": "contracts\\CenterFruit.sol:41"
+          },
+          {
+            "label": "swapTokensAtAmount",
+            "offset": 0,
+            "slot": "7",
+            "type": "t_uint256",
+            "contract": "CenterFruit",
+            "src": "contracts\\CenterFruit.sol:43"
+          },
+          {
+            "label": "buyFee",
+            "offset": 0,
+            "slot": "8",
+            "type": "t_uint256",
+            "contract": "CenterFruit",
+            "src": "contracts\\CenterFruit.sol:44"
+          },
+          {
+            "label": "sellFee",
+            "offset": 0,
+            "slot": "9",
+            "type": "t_uint256",
+            "contract": "CenterFruit",
+            "src": "contracts\\CenterFruit.sol:45"
+          },
+          {
+            "label": "transferFee",
+            "offset": 0,
+            "slot": "10",
+            "type": "t_uint256",
+            "contract": "CenterFruit",
+            "src": "contracts\\CenterFruit.sol:46"
+          },
+          {
+            "label": "isExcludedFromFees",
+            "offset": 0,
+            "slot": "11",
+            "type": "t_mapping(t_address,t_bool)",
+            "contract": "CenterFruit",
+            "src": "contracts\\CenterFruit.sol:51"
+          },
+          {
+            "label": "isExcludedFromLimits",
+            "offset": 0,
+            "slot": "12",
+            "type": "t_mapping(t_address,t_bool)",
+            "contract": "CenterFruit",
+            "src": "contracts\\CenterFruit.sol:52"
+          },
+          {
+            "label": "automatedMarketMakerPairs",
+            "offset": 0,
+            "slot": "13",
+            "type": "t_mapping(t_address,t_bool)",
+            "contract": "CenterFruit",
+            "src": "contracts\\CenterFruit.sol:53"
+          }
+        ],
+        "types": {
+          "t_address": {
+            "label": "address",
+            "numberOfBytes": "20"
+          },
+          "t_bool": {
+            "label": "bool",
+            "numberOfBytes": "1"
+          },
+          "t_bytes32": {
+            "label": "bytes32",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_address,t_bool)": {
+            "label": "mapping(address => bool)",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_address,t_mapping(t_address,t_uint256))": {
+            "label": "mapping(address => mapping(address => uint256))",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_address,t_uint256)": {
+            "label": "mapping(address => uint256)",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_bytes32,t_struct(RoleData)24_storage)": {
+            "label": "mapping(bytes32 => struct AccessControlUpgradeable.RoleData)",
+            "numberOfBytes": "32"
+          },
+          "t_string_storage": {
+            "label": "string",
+            "numberOfBytes": "32"
+          },
+          "t_struct(AccessControlStorage)34_storage": {
+            "label": "struct AccessControlUpgradeable.AccessControlStorage",
+            "members": [
+              {
+                "label": "_roles",
+                "type": "t_mapping(t_bytes32,t_struct(RoleData)24_storage)",
+                "offset": 0,
+                "slot": "0"
+              }
+            ],
+            "numberOfBytes": "32"
+          },
+          "t_struct(EIP712Storage)679_storage": {
+            "label": "struct EIP712Upgradeable.EIP712Storage",
+            "members": [
+              {
+                "label": "_hashedName",
+                "type": "t_bytes32",
+                "offset": 0,
+                "slot": "0"
+              },
+              {
+                "label": "_hashedVersion",
+                "type": "t_bytes32",
+                "offset": 0,
+                "slot": "1"
+              },
+              {
+                "label": "_name",
+                "type": "t_string_storage",
+                "offset": 0,
+                "slot": "2"
+              },
+              {
+                "label": "_version",
+                "type": "t_string_storage",
+                "offset": 0,
+                "slot": "3"
+              }
+            ],
+            "numberOfBytes": "128"
+          },
+          "t_struct(ERC20Storage)289_storage": {
+            "label": "struct ERC20Upgradeable.ERC20Storage",
+            "members": [
+              {
+                "label": "_balances",
+                "type": "t_mapping(t_address,t_uint256)",
+                "offset": 0,
+                "slot": "0"
+              },
+              {
+                "label": "_allowances",
+                "type": "t_mapping(t_address,t_mapping(t_address,t_uint256))",
+                "offset": 0,
+                "slot": "1"
+              },
+              {
+                "label": "_totalSupply",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "2"
+              },
+              {
+                "label": "_name",
+                "type": "t_string_storage",
+                "offset": 0,
+                "slot": "3"
+              },
+              {
+                "label": "_symbol",
+                "type": "t_string_storage",
+                "offset": 0,
+                "slot": "4"
+              }
+            ],
+            "numberOfBytes": "160"
+          },
+          "t_struct(InitializableStorage)145_storage": {
+            "label": "struct Initializable.InitializableStorage",
+            "members": [
+              {
+                "label": "_initialized",
+                "type": "t_uint64",
+                "offset": 0,
+                "slot": "0"
+              },
+              {
+                "label": "_initializing",
+                "type": "t_bool",
+                "offset": 8,
+                "slot": "0"
+              }
+            ],
+            "numberOfBytes": "32"
+          },
+          "t_struct(NoncesStorage)560_storage": {
+            "label": "struct NoncesUpgradeable.NoncesStorage",
+            "members": [
+              {
+                "label": "_nonces",
+                "type": "t_mapping(t_address,t_uint256)",
+                "offset": 0,
+                "slot": "0"
+              }
+            ],
+            "numberOfBytes": "32"
+          },
+          "t_struct(ReentrancyGuardStorage)616_storage": {
+            "label": "struct ReentrancyGuardUpgradeable.ReentrancyGuardStorage",
+            "members": [
+              {
+                "label": "_status",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "0"
+              }
+            ],
+            "numberOfBytes": "32"
+          },
+          "t_struct(RoleData)24_storage": {
+            "label": "struct AccessControlUpgradeable.RoleData",
+            "members": [
+              {
+                "label": "hasRole",
+                "type": "t_mapping(t_address,t_bool)",
+                "offset": 0,
+                "slot": "0"
+              },
+              {
+                "label": "adminRole",
+                "type": "t_bytes32",
+                "offset": 0,
+                "slot": "1"
+              }
+            ],
+            "numberOfBytes": "64"
+          },
+          "t_uint256": {
+            "label": "uint256",
+            "numberOfBytes": "32"
+          },
+          "t_uint64": {
+            "label": "uint64",
+            "numberOfBytes": "8"
+          },
+          "t_contract(IUniswapV2Router02)9569": {
+            "label": "contract IUniswapV2Router02",
+            "numberOfBytes": "20"
+          }
+        },
+        "namespaces": {
+          "erc7201:openzeppelin.storage.ReentrancyGuard": [
+            {
+              "contract": "ReentrancyGuardUpgradeable",
+              "label": "_status",
+              "type": "t_uint256",
+              "src": "@openzeppelin\\contracts-upgradeable\\utils\\ReentrancyGuardUpgradeable.sol:43",
+              "offset": 0,
+              "slot": "0"
+            }
+          ],
+          "erc7201:openzeppelin.storage.Nonces": [
+            {
+              "contract": "NoncesUpgradeable",
+              "label": "_nonces",
+              "type": "t_mapping(t_address,t_uint256)",
+              "src": "@openzeppelin\\contracts-upgradeable\\utils\\NoncesUpgradeable.sol:17",
+              "offset": 0,
+              "slot": "0"
+            }
+          ],
+          "erc7201:openzeppelin.storage.EIP712": [
+            {
+              "contract": "EIP712Upgradeable",
+              "label": "_hashedName",
+              "type": "t_bytes32",
+              "src": "@openzeppelin\\contracts-upgradeable\\utils\\cryptography\\EIP712Upgradeable.sol:39",
+              "offset": 0,
+              "slot": "0"
+            },
+            {
+              "contract": "EIP712Upgradeable",
+              "label": "_hashedVersion",
+              "type": "t_bytes32",
+              "src": "@openzeppelin\\contracts-upgradeable\\utils\\cryptography\\EIP712Upgradeable.sol:41",
+              "offset": 0,
+              "slot": "1"
+            },
+            {
+              "contract": "EIP712Upgradeable",
+              "label": "_name",
+              "type": "t_string_storage",
+              "src": "@openzeppelin\\contracts-upgradeable\\utils\\cryptography\\EIP712Upgradeable.sol:43",
+              "offset": 0,
+              "slot": "2"
+            },
+            {
+              "contract": "EIP712Upgradeable",
+              "label": "_version",
+              "type": "t_string_storage",
+              "src": "@openzeppelin\\contracts-upgradeable\\utils\\cryptography\\EIP712Upgradeable.sol:44",
+              "offset": 0,
+              "slot": "3"
+            }
+          ],
+          "erc7201:openzeppelin.storage.ERC20": [
+            {
+              "contract": "ERC20Upgradeable",
+              "label": "_balances",
+              "type": "t_mapping(t_address,t_uint256)",
+              "src": "@openzeppelin\\contracts-upgradeable\\token\\ERC20\\ERC20Upgradeable.sol:33",
+              "offset": 0,
+              "slot": "0"
+            },
+            {
+              "contract": "ERC20Upgradeable",
+              "label": "_allowances",
+              "type": "t_mapping(t_address,t_mapping(t_address,t_uint256))",
+              "src": "@openzeppelin\\contracts-upgradeable\\token\\ERC20\\ERC20Upgradeable.sol:35",
+              "offset": 0,
+              "slot": "1"
+            },
+            {
+              "contract": "ERC20Upgradeable",
+              "label": "_totalSupply",
+              "type": "t_uint256",
+              "src": "@openzeppelin\\contracts-upgradeable\\token\\ERC20\\ERC20Upgradeable.sol:37",
+              "offset": 0,
+              "slot": "2"
+            },
+            {
+              "contract": "ERC20Upgradeable",
+              "label": "_name",
+              "type": "t_string_storage",
+              "src": "@openzeppelin\\contracts-upgradeable\\token\\ERC20\\ERC20Upgradeable.sol:39",
+              "offset": 0,
+              "slot": "3"
+            },
+            {
+              "contract": "ERC20Upgradeable",
+              "label": "_symbol",
+              "type": "t_string_storage",
+              "src": "@openzeppelin\\contracts-upgradeable\\token\\ERC20\\ERC20Upgradeable.sol:40",
+              "offset": 0,
+              "slot": "4"
+            }
+          ],
+          "erc7201:openzeppelin.storage.AccessControl": [
+            {
+              "contract": "AccessControlUpgradeable",
+              "label": "_roles",
+              "type": "t_mapping(t_bytes32,t_struct(RoleData)24_storage)",
+              "src": "@openzeppelin\\contracts-upgradeable\\access\\AccessControlUpgradeable.sol:61",
+              "offset": 0,
+              "slot": "0"
+            }
+          ],
+          "erc7201:openzeppelin.storage.Initializable": [
+            {
+              "contract": "Initializable",
+              "label": "_initialized",
+              "type": "t_uint64",
+              "src": "@openzeppelin\\contracts-upgradeable\\proxy\\utils\\Initializable.sol:69",
+              "offset": 0,
+              "slot": "0"
+            },
+            {
+              "contract": "Initializable",
+              "label": "_initializing",
+              "type": "t_bool",
+              "src": "@openzeppelin\\contracts-upgradeable\\proxy\\utils\\Initializable.sol:73",
+              "offset": 8,
+              "slot": "0"
+            }
+          ]
+        }
+      }
+    },
+    "a96705c4a40f1717a525d1e3d4aea587590feeb6a64051fd3207e38b60de4dcb": {
+      "address": "0x957059C81eE9AAc9ADc446732d8aBdA8AeaA82F2",
+      "txHash": "0x9188f41528877a98338700cfbb291db7e7d9a9e67e5834e50ddd5f031982a17b",
+      "layout": {
+        "solcVersion": "0.8.28",
+        "storage": [
+          {
+            "label": "uniswapV2Router",
+            "offset": 0,
+            "slot": "0",
+            "type": "t_contract(IUniswapV2Router02)11085",
+            "contract": "CenterFruit",
+            "src": "contracts\\CenterFruit.sol:24"
+          },
+          {
+            "label": "uniswapV2Pair",
+            "offset": 0,
+            "slot": "1",
+            "type": "t_address",
+            "contract": "CenterFruit",
+            "src": "contracts\\CenterFruit.sol:29"
+          },
+          {
+            "label": "operationsWallet",
+            "offset": 0,
+            "slot": "2",
+            "type": "t_address",
+            "contract": "CenterFruit",
+            "src": "contracts\\CenterFruit.sol:30"
+          },
+          {
+            "label": "isLimitsEnabled",
+            "offset": 20,
+            "slot": "2",
+            "type": "t_bool",
+            "contract": "CenterFruit",
+            "src": "contracts\\CenterFruit.sol:32"
+          },
+          {
+            "label": "isTaxEnabled",
+            "offset": 21,
+            "slot": "2",
+            "type": "t_bool",
+            "contract": "CenterFruit",
+            "src": "contracts\\CenterFruit.sol:33"
+          },
+          {
+            "label": "inSwapBack",
+            "offset": 22,
+            "slot": "2",
+            "type": "t_bool",
+            "contract": "CenterFruit",
+            "src": "contracts\\CenterFruit.sol:34"
+          },
+          {
+            "label": "isLaunched",
+            "offset": 23,
+            "slot": "2",
+            "type": "t_bool",
+            "contract": "CenterFruit",
+            "src": "contracts\\CenterFruit.sol:35"
+          },
+          {
+            "label": "lastSwapBackExecutionBlock",
+            "offset": 0,
+            "slot": "3",
+            "type": "t_uint256",
+            "contract": "CenterFruit",
+            "src": "contracts\\CenterFruit.sol:37"
+          },
+          {
+            "label": "maxBuy",
+            "offset": 0,
+            "slot": "4",
+            "type": "t_uint256",
+            "contract": "CenterFruit",
+            "src": "contracts\\CenterFruit.sol:39"
+          },
+          {
+            "label": "maxSell",
+            "offset": 0,
+            "slot": "5",
+            "type": "t_uint256",
+            "contract": "CenterFruit",
+            "src": "contracts\\CenterFruit.sol:40"
+          },
+          {
+            "label": "maxWallet",
+            "offset": 0,
+            "slot": "6",
+            "type": "t_uint256",
+            "contract": "CenterFruit",
+            "src": "contracts\\CenterFruit.sol:41"
+          },
+          {
+            "label": "swapTokensAtAmount",
+            "offset": 0,
+            "slot": "7",
+            "type": "t_uint256",
+            "contract": "CenterFruit",
+            "src": "contracts\\CenterFruit.sol:43"
+          },
+          {
+            "label": "buyFee",
+            "offset": 0,
+            "slot": "8",
+            "type": "t_uint256",
+            "contract": "CenterFruit",
+            "src": "contracts\\CenterFruit.sol:44"
+          },
+          {
+            "label": "sellFee",
+            "offset": 0,
+            "slot": "9",
+            "type": "t_uint256",
+            "contract": "CenterFruit",
+            "src": "contracts\\CenterFruit.sol:45"
+          },
+          {
+            "label": "transferFee",
+            "offset": 0,
+            "slot": "10",
+            "type": "t_uint256",
+            "contract": "CenterFruit",
+            "src": "contracts\\CenterFruit.sol:46"
+          },
+          {
+            "label": "isExcludedFromFees",
+            "offset": 0,
+            "slot": "11",
+            "type": "t_mapping(t_address,t_bool)",
+            "contract": "CenterFruit",
+            "src": "contracts\\CenterFruit.sol:51"
+          },
+          {
+            "label": "isExcludedFromLimits",
+            "offset": 0,
+            "slot": "12",
+            "type": "t_mapping(t_address,t_bool)",
+            "contract": "CenterFruit",
+            "src": "contracts\\CenterFruit.sol:52"
+          },
+          {
+            "label": "automatedMarketMakerPairs",
+            "offset": 0,
+            "slot": "13",
+            "type": "t_mapping(t_address,t_bool)",
+            "contract": "CenterFruit",
+            "src": "contracts\\CenterFruit.sol:53"
+          }
+        ],
+        "types": {
+          "t_address": {
+            "label": "address",
+            "numberOfBytes": "20"
+          },
+          "t_bool": {
+            "label": "bool",
+            "numberOfBytes": "1"
+          },
+          "t_bytes32": {
+            "label": "bytes32",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_address,t_bool)": {
+            "label": "mapping(address => bool)",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_address,t_mapping(t_address,t_uint256))": {
+            "label": "mapping(address => mapping(address => uint256))",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_address,t_uint256)": {
+            "label": "mapping(address => uint256)",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_bytes32,t_struct(RoleData)24_storage)": {
+            "label": "mapping(bytes32 => struct AccessControlUpgradeable.RoleData)",
+            "numberOfBytes": "32"
+          },
+          "t_string_storage": {
+            "label": "string",
+            "numberOfBytes": "32"
+          },
+          "t_struct(AccessControlStorage)34_storage": {
+            "label": "struct AccessControlUpgradeable.AccessControlStorage",
+            "members": [
+              {
+                "label": "_roles",
+                "type": "t_mapping(t_bytes32,t_struct(RoleData)24_storage)",
+                "offset": 0,
+                "slot": "0"
+              }
+            ],
+            "numberOfBytes": "32"
+          },
+          "t_struct(EIP712Storage)805_storage": {
+            "label": "struct EIP712Upgradeable.EIP712Storage",
+            "members": [
+              {
+                "label": "_hashedName",
+                "type": "t_bytes32",
+                "offset": 0,
+                "slot": "0"
+              },
+              {
+                "label": "_hashedVersion",
+                "type": "t_bytes32",
+                "offset": 0,
+                "slot": "1"
+              },
+              {
+                "label": "_name",
+                "type": "t_string_storage",
+                "offset": 0,
+                "slot": "2"
+              },
+              {
+                "label": "_version",
+                "type": "t_string_storage",
+                "offset": 0,
+                "slot": "3"
+              }
+            ],
+            "numberOfBytes": "128"
+          },
+          "t_struct(ERC20Storage)289_storage": {
+            "label": "struct ERC20Upgradeable.ERC20Storage",
+            "members": [
+              {
+                "label": "_balances",
+                "type": "t_mapping(t_address,t_uint256)",
+                "offset": 0,
+                "slot": "0"
+              },
+              {
+                "label": "_allowances",
+                "type": "t_mapping(t_address,t_mapping(t_address,t_uint256))",
+                "offset": 0,
+                "slot": "1"
+              },
+              {
+                "label": "_totalSupply",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "2"
+              },
+              {
+                "label": "_name",
+                "type": "t_string_storage",
+                "offset": 0,
+                "slot": "3"
+              },
+              {
+                "label": "_symbol",
+                "type": "t_string_storage",
+                "offset": 0,
+                "slot": "4"
+              }
+            ],
+            "numberOfBytes": "160"
+          },
+          "t_struct(InitializableStorage)145_storage": {
+            "label": "struct Initializable.InitializableStorage",
+            "members": [
+              {
+                "label": "_initialized",
+                "type": "t_uint64",
+                "offset": 0,
+                "slot": "0"
+              },
+              {
+                "label": "_initializing",
+                "type": "t_bool",
+                "offset": 8,
+                "slot": "0"
+              }
+            ],
+            "numberOfBytes": "32"
+          },
+          "t_struct(NoncesStorage)624_storage": {
+            "label": "struct NoncesUpgradeable.NoncesStorage",
+            "members": [
+              {
+                "label": "_nonces",
+                "type": "t_mapping(t_address,t_uint256)",
+                "offset": 0,
+                "slot": "0"
+              }
+            ],
+            "numberOfBytes": "32"
+          },
+          "t_struct(ReentrancyGuardStorage)742_storage": {
+            "label": "struct ReentrancyGuardUpgradeable.ReentrancyGuardStorage",
+            "members": [
+              {
+                "label": "_status",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "0"
+              }
+            ],
+            "numberOfBytes": "32"
+          },
+          "t_struct(RoleData)24_storage": {
+            "label": "struct AccessControlUpgradeable.RoleData",
+            "members": [
+              {
+                "label": "hasRole",
+                "type": "t_mapping(t_address,t_bool)",
+                "offset": 0,
+                "slot": "0"
+              },
+              {
+                "label": "adminRole",
+                "type": "t_bytes32",
+                "offset": 0,
+                "slot": "1"
+              }
+            ],
+            "numberOfBytes": "64"
+          },
+          "t_uint256": {
+            "label": "uint256",
+            "numberOfBytes": "32"
+          },
+          "t_uint64": {
+            "label": "uint64",
+            "numberOfBytes": "8"
+          },
+          "t_contract(IUniswapV2Router02)11085": {
             "label": "contract IUniswapV2Router02",
             "numberOfBytes": "20"
           }
