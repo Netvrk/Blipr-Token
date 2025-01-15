@@ -3,6 +3,7 @@ pragma solidity 0.8.28;
 
 import "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC20PermitUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC20PausableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
@@ -15,6 +16,7 @@ contract SilkAI is
     AccessControlUpgradeable,
     ERC20Upgradeable,
     ERC20PermitUpgradeable,
+    ERC20PausableUpgradeable,
     UUPSUpgradeable,
     ReentrancyGuardUpgradeable
 {
@@ -33,16 +35,19 @@ contract SilkAI is
     bool private inSwapBack;
     bool public isLaunched;
 
-    uint256 private lastSwapBackExecutionBlock;
-
-    uint256 public maxBuy;
-    uint256 public maxSell;
-    uint256 public maxWallet;
-
+    struct Limits {
+        uint256 maxBuy;
+        uint256 maxSell;
+        uint256 maxWallet;
+    }
+    Limits public limits;
     uint256 public swapTokensAtAmount;
-    uint256 public buyFee;
-    uint256 public sellFee;
-    uint256 public transferFee;
+    struct Fees {
+        uint256 buyFee;
+        uint256 sellFee;
+        uint256 transferFee;
+    }
+    Fees public fees;
 
     uint256 private constant MAX_FEE = 6000;
     uint256 private constant DENM = 10000;
@@ -51,22 +56,31 @@ contract SilkAI is
     mapping(address => bool) public isExcludedFromLimits;
     mapping(address => bool) public automatedMarketMakerPairs;
 
+    uint256 private lastSwapBackExecutionBlock;
+
+    mapping(address => bool) public isBlocked;
+
     event Launch();
     event SetOperationsWallet(address newWallet, address oldWallet);
     event SetmarketingWallet(address newWallet, address oldWallet);
     event SetLimitsEnabled(bool status);
     event SetTaxesEnabled(bool status);
-    event SetMaxBuy(uint256 amount);
-    event SetMaxSell(uint256 amount);
-    event SetMaxWallet(uint256 amount);
+    event SetLimits(
+        uint256 newMaxBuy,
+        uint256 newMaxSell,
+        uint256 newMaxWallet
+    );
     event SetSwapTokensAtAmount(uint256 newValue, uint256 oldValue);
-    event SetBuyFees(uint256 newValue, uint256 oldValue);
-    event SetSellFees(uint256 newValue, uint256 oldValue);
-    event SetTransferFees(uint256 newValue, uint256 oldValue);
+    event SetFees(
+        uint256 newBuyFee,
+        uint256 newSellFee,
+        uint256 newTransferFee
+    );
     event ExcludeFromFees(address account, bool isExcluded);
     event ExcludeFromLimits(address account, bool isExcluded);
     event SetAutomatedMarketMakerPair(address pair, bool value);
     event WithdrawStuckTokens(address token, uint256 amount);
+    event AddressBlocked(address account, bool value);
 
     error AlreadyLaunched();
     error AmountTooLow();
@@ -83,6 +97,7 @@ contract SilkAI is
     error InsufficientToken();
     error ZeroTokenAmount();
     error ZeroEthAmount();
+    error AccountBlocked();
 
     modifier lockSwapBack() {
         inSwapBack = true;
@@ -96,8 +111,8 @@ contract SilkAI is
     }
 
     function initialize(address _operationsWallet) external initializer {
-        __ERC20_init("AI SILK", "AISLK");
-        __ERC20Permit_init("AI SILK");
+        __ERC20_init("AI Silk", "ASLK");
+        __ERC20Permit_init("AI Silk");
         __AccessControl_init();
         __UUPSUpgradeable_init();
         __ReentrancyGuard_init();
@@ -107,21 +122,21 @@ contract SilkAI is
         _grantRole(DEFAULT_ADMIN_ROLE, sender);
         _grantRole(MANAGER_ROLE, sender);
 
-        uint256 totalSupply = 100_000_000 ether;
+        uint256 totalSupply = 1_000_000_000 ether;
 
         operationsWallet = _operationsWallet;
 
-        maxBuy = (totalSupply * 50) / DENM; // 0.5%
-        maxSell = (totalSupply * 50) / DENM; // 0.5%
-        maxWallet = (totalSupply * 50) / DENM; // 0.5%
+        limits.maxBuy = (totalSupply * 50) / DENM; // 0.5%
+        limits.maxSell = (totalSupply * 50) / DENM; // 0.5%
+        limits.maxWallet = (totalSupply * 50) / DENM; // 0.5%
         swapTokensAtAmount = (totalSupply * 100) / DENM; // 1%
 
         isLimitsEnabled = true;
         isTaxEnabled = true;
 
-        buyFee = 2000; // 20% buy fee
-        sellFee = 2000; // 20% sell fee
-        transferFee = 2000; // 20% transfer fee
+        fees.buyFee = 2000; // 20% buy fee
+        fees.sellFee = 2000; // 20% sell fee
+        fees.transferFee = 2000; // 20% transfer fee
 
         uniswapV2Router = IUniswapV2Router02(
             0x4752ba5DBc23f44D87826276BF6Fd6b1C372aD24
@@ -148,6 +163,26 @@ contract SilkAI is
     receive() external payable {}
 
     fallback() external payable {}
+
+    /*
+     * /////////////////////////////////////////////////////////////////
+     * @dev Pause the contract
+     * @dev Only the admin can call this function
+     * /////////////////////////////////////////////////////////////////
+     */
+    function pause() public onlyRole(DEFAULT_ADMIN_ROLE) {
+        _pause();
+    }
+
+    /*
+     * /////////////////////////////////////////////////////////////////
+     * @dev Unpause the contract
+     * @dev Only the admin can call this function
+     * /////////////////////////////////////////////////////////////////
+     */
+    function unpause() public onlyRole(DEFAULT_ADMIN_ROLE) {
+        _unpause();
+    }
 
     /*
      * /////////////////////////////////////////////////////////////////
@@ -251,21 +286,17 @@ contract SilkAI is
     ) external onlyRole(MANAGER_ROLE) {
         // Set Buy Fee
         require(newBuyFee <= MAX_FEE, FeeTooHigh());
-        uint256 oldBuyFee = buyFee;
-        buyFee = newBuyFee;
-        emit SetBuyFees(newBuyFee, oldBuyFee);
+        fees.buyFee = newBuyFee;
 
         // Set Sell Fee
         require(newSellFee <= MAX_FEE, FeeTooHigh());
-        uint256 oldSellFee = sellFee;
-        sellFee = newSellFee;
-        emit SetSellFees(newSellFee, oldSellFee);
+        fees.sellFee = newSellFee;
 
         // Set Transfer Fee
         require(newTransferFee <= MAX_FEE, FeeTooHigh());
-        uint256 oldTransferFee = transferFee;
-        transferFee = newTransferFee;
-        emit SetTransferFees(newTransferFee, oldTransferFee);
+        fees.transferFee = newTransferFee;
+
+        emit SetFees(newBuyFee, newSellFee, newTransferFee);
     }
 
     /*
@@ -284,18 +315,17 @@ contract SilkAI is
         uint256 _totalSupply = totalSupply();
         require(newMaxBuy >= (_totalSupply * 1) / DENM, AmountTooLow()); // 0.01%
         require(newMaxBuy <= (_totalSupply * 500) / DENM, AmountTooHigh()); // 5%
-        maxBuy = newMaxBuy;
-        emit SetMaxBuy(newMaxBuy);
+        limits.maxBuy = newMaxBuy;
 
         require(newMaxSell >= (_totalSupply * 1) / DENM, AmountTooLow()); // 0.01%
         require(newMaxSell <= (_totalSupply * 500) / DENM, AmountTooHigh()); // 5%
-        maxSell = newMaxSell;
-        emit SetMaxSell(newMaxSell);
+        limits.maxSell = newMaxSell;
 
         require(newMaxWallet >= (_totalSupply * 1) / DENM, AmountTooLow()); // 0.01%
         require(newMaxWallet <= (_totalSupply * 500) / DENM, AmountTooHigh()); // 5%
-        maxWallet = newMaxWallet;
-        emit SetMaxWallet(newMaxWallet);
+        limits.maxWallet = newMaxWallet;
+
+        emit SetLimits(newMaxBuy, newMaxSell, newMaxWallet);
     }
 
     /*
@@ -325,6 +355,19 @@ contract SilkAI is
     ) external onlyRole(MANAGER_ROLE) {
         require(!automatedMarketMakerPairs[pair], AMMAlreadySet());
         _setAutomatedMarketMakerPair(pair, value);
+    }
+
+    /*
+     * /////////////////////////////////////////////////////////////////
+     * @dev Block an account
+     * /////////////////////////////////////////////////////////////////
+     */
+    function setBlockAccount(
+        address account,
+        bool value
+    ) external onlyRole(MANAGER_ROLE) {
+        isBlocked[account] = value;
+        emit AddressBlocked(account, value);
     }
 
     /*
@@ -402,7 +445,7 @@ contract SilkAI is
         address from,
         address to,
         uint256 amount
-    ) internal virtual override(ERC20Upgradeable) {
+    ) internal virtual override(ERC20Upgradeable, ERC20PausableUpgradeable) {
         require(
             isLaunched ||
                 isExcludedFromLimits[from] ||
@@ -410,24 +453,26 @@ contract SilkAI is
             NotLaunched()
         );
 
+        require(!isBlocked[from] && !isBlocked[to], AccountBlocked());
+
         // Check if the transaction is limited
         bool isLimited = isLimitsEnabled &&
             !inSwapBack &&
             !(isExcludedFromLimits[from] || isExcludedFromLimits[to]);
         if (isLimited) {
             if (automatedMarketMakerPairs[from] && !isExcludedFromLimits[to]) {
-                require(amount <= maxBuy, MaxBuyAmountExceed());
+                require(amount <= limits.maxBuy, MaxBuyAmountExceed());
                 require(
-                    amount + balanceOf(to) <= maxWallet,
+                    amount + balanceOf(to) <= limits.maxWallet,
                     MaxWalletAmountExceed()
                 );
             } else if (
                 automatedMarketMakerPairs[to] && !isExcludedFromLimits[from]
             ) {
-                require(amount <= maxSell, MaxSellAmountExceed());
+                require(amount <= limits.maxSell, MaxSellAmountExceed());
             } else if (!isExcludedFromLimits[to]) {
                 require(
-                    amount + balanceOf(to) <= maxWallet,
+                    amount + balanceOf(to) <= limits.maxWallet,
                     MaxWalletAmountExceed()
                 );
             }
@@ -438,22 +483,22 @@ contract SilkAI is
             !inSwapBack &&
             !(isExcludedFromFees[from] || isExcludedFromFees[to]);
         if (isTaxed) {
-            uint256 fees = 0;
-            if (automatedMarketMakerPairs[to] && sellFee > 0) {
-                fees = (amount * sellFee) / DENM;
-            } else if (automatedMarketMakerPairs[from] && buyFee > 0) {
-                fees = (amount * buyFee) / DENM;
+            uint256 tax = 0;
+            if (automatedMarketMakerPairs[to] && fees.sellFee > 0) {
+                tax = (amount * fees.sellFee) / DENM;
+            } else if (automatedMarketMakerPairs[from] && fees.buyFee > 0) {
+                tax = (amount * fees.buyFee) / DENM;
             } else if (
                 !automatedMarketMakerPairs[to] &&
                 !automatedMarketMakerPairs[from] &&
-                transferFee > 0
+                fees.transferFee > 0
             ) {
-                fees = (amount * transferFee) / DENM;
+                tax = (amount * fees.transferFee) / DENM;
             }
 
-            if (fees > 0) {
-                amount -= fees;
-                super._update(from, address(this), fees);
+            if (tax > 0) {
+                amount -= tax;
+                super._update(from, address(this), tax);
             }
         }
 

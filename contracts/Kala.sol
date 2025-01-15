@@ -3,6 +3,7 @@ pragma solidity 0.8.28;
 
 import "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC20PermitUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC20PausableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
@@ -15,17 +16,17 @@ contract Kala is
     AccessControlUpgradeable,
     ERC20Upgradeable,
     ERC20PermitUpgradeable,
+    ERC20PausableUpgradeable,
     UUPSUpgradeable,
     ReentrancyGuardUpgradeable
 {
     bytes32 public constant MANAGER_ROLE = keccak256("MANAGER_ROLE");
     bytes32 public constant UPGRADER_ROLE = keccak256("UPGRADER_ROLE");
 
-    IUniswapV2Router02 public uniswapV2Router;
-
     address public constant ZERO_ADDRESS = address(0);
     address public constant DEAD_ADDRESS = address(0xdEaD);
 
+    IUniswapV2Router02 public uniswapV2Router;
     address public uniswapV2Pair;
     address public operationsWallet;
 
@@ -34,16 +35,19 @@ contract Kala is
     bool private inSwapBack;
     bool public isLaunched;
 
-    uint256 private lastSwapBackExecutionBlock;
-
-    uint256 public maxBuy;
-    uint256 public maxSell;
-    uint256 public maxWallet;
-
+    struct Limits {
+        uint256 maxBuy;
+        uint256 maxSell;
+        uint256 maxWallet;
+    }
+    Limits public limits;
     uint256 public swapTokensAtAmount;
-    uint256 public buyFee;
-    uint256 public sellFee;
-    uint256 public transferFee;
+    struct Fees {
+        uint256 buyFee;
+        uint256 sellFee;
+        uint256 transferFee;
+    }
+    Fees public fees;
 
     uint256 private constant MAX_FEE = 6000;
     uint256 private constant DENM = 10000;
@@ -52,22 +56,31 @@ contract Kala is
     mapping(address => bool) public isExcludedFromLimits;
     mapping(address => bool) public automatedMarketMakerPairs;
 
+    uint256 private lastSwapBackExecutionBlock;
+
+    mapping(address => bool) public isBlocked;
+
     event Launch();
     event SetOperationsWallet(address newWallet, address oldWallet);
     event SetmarketingWallet(address newWallet, address oldWallet);
     event SetLimitsEnabled(bool status);
     event SetTaxesEnabled(bool status);
-    event SetMaxBuy(uint256 amount);
-    event SetMaxSell(uint256 amount);
-    event SetMaxWallet(uint256 amount);
+    event SetLimits(
+        uint256 newMaxBuy,
+        uint256 newMaxSell,
+        uint256 newMaxWallet
+    );
     event SetSwapTokensAtAmount(uint256 newValue, uint256 oldValue);
-    event SetBuyFees(uint256 newValue, uint256 oldValue);
-    event SetSellFees(uint256 newValue, uint256 oldValue);
-    event SetTransferFees(uint256 newValue, uint256 oldValue);
+    event SetFees(
+        uint256 newBuyFee,
+        uint256 newSellFee,
+        uint256 newTransferFee
+    );
     event ExcludeFromFees(address account, bool isExcluded);
     event ExcludeFromLimits(address account, bool isExcluded);
     event SetAutomatedMarketMakerPair(address pair, bool value);
     event WithdrawStuckTokens(address token, uint256 amount);
+    event AddressBlocked(address account, bool value);
 
     error AlreadyLaunched();
     error AmountTooLow();
@@ -84,6 +97,7 @@ contract Kala is
     error InsufficientToken();
     error ZeroTokenAmount();
     error ZeroEthAmount();
+    error AccountBlocked();
 
     modifier lockSwapBack() {
         inSwapBack = true;
@@ -97,8 +111,8 @@ contract Kala is
     }
 
     function initialize(address _operationsWallet) external initializer {
-        __ERC20_init("Kala", "KALA");
-        __ERC20Permit_init("Kala");
+        __ERC20_init("Kala Dai", "KALAD");
+        __ERC20Permit_init("Kala Dai");
         __AccessControl_init();
         __UUPSUpgradeable_init();
         __ReentrancyGuard_init();
@@ -108,21 +122,21 @@ contract Kala is
         _grantRole(DEFAULT_ADMIN_ROLE, sender);
         _grantRole(MANAGER_ROLE, sender);
 
-        uint256 totalSupply = 100_000_000 ether;
+        uint256 totalSupply = 1_000_000_000 ether;
 
         operationsWallet = _operationsWallet;
 
-        maxBuy = (totalSupply * 70) / DENM; // 0.7%
-        maxSell = (totalSupply * 70) / DENM; // 0.7%
-        maxWallet = (totalSupply * 70) / DENM; // 0.7%
-        swapTokensAtAmount = (totalSupply * 20) / DENM; // 0.2%
+        limits.maxBuy = (totalSupply * 50) / DENM; // 0.5%
+        limits.maxSell = (totalSupply * 50) / DENM; // 0.5%
+        limits.maxWallet = (totalSupply * 50) / DENM; // 0.5%
+        swapTokensAtAmount = (totalSupply * 100) / DENM; // 1%
 
         isLimitsEnabled = true;
         isTaxEnabled = true;
 
-        buyFee = 1000; // 10% buy fee
-        sellFee = 1000; // 10% sell fee
-        transferFee = 1000; // 10% transfer fee
+        fees.buyFee = 2000; // 20% buy fee
+        fees.sellFee = 2000; // 20% sell fee
+        fees.transferFee = 2000; // 20% transfer fee
 
         uniswapV2Router = IUniswapV2Router02(
             0x4752ba5DBc23f44D87826276BF6Fd6b1C372aD24
@@ -149,6 +163,26 @@ contract Kala is
     receive() external payable {}
 
     fallback() external payable {}
+
+    /*
+     * /////////////////////////////////////////////////////////////////
+     * @dev Pause the contract
+     * @dev Only the admin can call this function
+     * /////////////////////////////////////////////////////////////////
+     */
+    function pause() public onlyRole(DEFAULT_ADMIN_ROLE) {
+        _pause();
+    }
+
+    /*
+     * /////////////////////////////////////////////////////////////////
+     * @dev Unpause the contract
+     * @dev Only the admin can call this function
+     * /////////////////////////////////////////////////////////////////
+     */
+    function unpause() public onlyRole(DEFAULT_ADMIN_ROLE) {
+        _unpause();
+    }
 
     /*
      * /////////////////////////////////////////////////////////////////
@@ -180,15 +214,12 @@ contract Kala is
                 address(this),
                 uniswapV2Router.WETH()
             );
-
         _setAutomatedMarketMakerPair(uniswapV2Pair, true);
 
         require(balanceOf(msg.sender) >= tokenAmount, InsufficientToken());
-
         _transfer(msg.sender, address(this), tokenAmount);
 
         _approve(address(this), address(uniswapV2Router), type(uint256).max);
-
         uniswapV2Router.addLiquidityETH{value: msg.value}(
             address(this),
             tokenAmount,
@@ -197,7 +228,6 @@ contract Kala is
             msg.sender,
             block.timestamp
         );
-
         IERC20(uniswapV2Pair).approve(
             address(uniswapV2Router),
             type(uint256).max
@@ -256,21 +286,17 @@ contract Kala is
     ) external onlyRole(MANAGER_ROLE) {
         // Set Buy Fee
         require(newBuyFee <= MAX_FEE, FeeTooHigh());
-        uint256 oldBuyFee = buyFee;
-        buyFee = newBuyFee;
-        emit SetBuyFees(newBuyFee, oldBuyFee);
+        fees.buyFee = newBuyFee;
 
         // Set Sell Fee
         require(newSellFee <= MAX_FEE, FeeTooHigh());
-        uint256 oldSellFee = sellFee;
-        sellFee = newSellFee;
-        emit SetSellFees(newSellFee, oldSellFee);
+        fees.sellFee = newSellFee;
 
         // Set Transfer Fee
         require(newTransferFee <= MAX_FEE, FeeTooHigh());
-        uint256 oldTransferFee = transferFee;
-        transferFee = newTransferFee;
-        emit SetTransferFees(newTransferFee, oldTransferFee);
+        fees.transferFee = newTransferFee;
+
+        emit SetFees(newBuyFee, newSellFee, newTransferFee);
     }
 
     /*
@@ -289,18 +315,17 @@ contract Kala is
         uint256 _totalSupply = totalSupply();
         require(newMaxBuy >= (_totalSupply * 1) / DENM, AmountTooLow()); // 0.01%
         require(newMaxBuy <= (_totalSupply * 500) / DENM, AmountTooHigh()); // 5%
-        maxBuy = newMaxBuy;
-        emit SetMaxBuy(newMaxBuy);
+        limits.maxBuy = newMaxBuy;
 
         require(newMaxSell >= (_totalSupply * 1) / DENM, AmountTooLow()); // 0.01%
         require(newMaxSell <= (_totalSupply * 500) / DENM, AmountTooHigh()); // 5%
-        maxSell = newMaxSell;
-        emit SetMaxSell(newMaxSell);
+        limits.maxSell = newMaxSell;
 
         require(newMaxWallet >= (_totalSupply * 1) / DENM, AmountTooLow()); // 0.01%
         require(newMaxWallet <= (_totalSupply * 500) / DENM, AmountTooHigh()); // 5%
-        maxWallet = newMaxWallet;
-        emit SetMaxWallet(newMaxWallet);
+        limits.maxWallet = newMaxWallet;
+
+        emit SetLimits(newMaxBuy, newMaxSell, newMaxWallet);
     }
 
     /*
@@ -330,6 +355,19 @@ contract Kala is
     ) external onlyRole(MANAGER_ROLE) {
         require(!automatedMarketMakerPairs[pair], AMMAlreadySet());
         _setAutomatedMarketMakerPair(pair, value);
+    }
+
+    /*
+     * /////////////////////////////////////////////////////////////////
+     * @dev Block an account
+     * /////////////////////////////////////////////////////////////////
+     */
+    function setBlockAccount(
+        address account,
+        bool value
+    ) external onlyRole(MANAGER_ROLE) {
+        isBlocked[account] = value;
+        emit AddressBlocked(account, value);
     }
 
     /*
@@ -407,7 +445,7 @@ contract Kala is
         address from,
         address to,
         uint256 amount
-    ) internal virtual override(ERC20Upgradeable) {
+    ) internal virtual override(ERC20Upgradeable, ERC20PausableUpgradeable) {
         require(
             isLaunched ||
                 isExcludedFromLimits[from] ||
@@ -415,24 +453,26 @@ contract Kala is
             NotLaunched()
         );
 
+        require(!isBlocked[from] && !isBlocked[to], AccountBlocked());
+
         // Check if the transaction is limited
         bool isLimited = isLimitsEnabled &&
             !inSwapBack &&
             !(isExcludedFromLimits[from] || isExcludedFromLimits[to]);
         if (isLimited) {
             if (automatedMarketMakerPairs[from] && !isExcludedFromLimits[to]) {
-                require(amount <= maxBuy, MaxBuyAmountExceed());
+                require(amount <= limits.maxBuy, MaxBuyAmountExceed());
                 require(
-                    amount + balanceOf(to) <= maxWallet,
+                    amount + balanceOf(to) <= limits.maxWallet,
                     MaxWalletAmountExceed()
                 );
             } else if (
                 automatedMarketMakerPairs[to] && !isExcludedFromLimits[from]
             ) {
-                require(amount <= maxSell, MaxSellAmountExceed());
+                require(amount <= limits.maxSell, MaxSellAmountExceed());
             } else if (!isExcludedFromLimits[to]) {
                 require(
-                    amount + balanceOf(to) <= maxWallet,
+                    amount + balanceOf(to) <= limits.maxWallet,
                     MaxWalletAmountExceed()
                 );
             }
@@ -443,22 +483,22 @@ contract Kala is
             !inSwapBack &&
             !(isExcludedFromFees[from] || isExcludedFromFees[to]);
         if (isTaxed) {
-            uint256 fees = 0;
-            if (automatedMarketMakerPairs[to] && sellFee > 0) {
-                fees = (amount * sellFee) / DENM;
-            } else if (automatedMarketMakerPairs[from] && buyFee > 0) {
-                fees = (amount * buyFee) / DENM;
+            uint256 tax = 0;
+            if (automatedMarketMakerPairs[to] && fees.sellFee > 0) {
+                tax = (amount * fees.sellFee) / DENM;
+            } else if (automatedMarketMakerPairs[from] && fees.buyFee > 0) {
+                tax = (amount * fees.buyFee) / DENM;
             } else if (
                 !automatedMarketMakerPairs[to] &&
                 !automatedMarketMakerPairs[from] &&
-                transferFee > 0
+                fees.transferFee > 0
             ) {
-                fees = (amount * transferFee) / DENM;
+                tax = (amount * fees.transferFee) / DENM;
             }
 
-            if (fees > 0) {
-                amount -= fees;
-                super._update(from, address(this), fees);
+            if (tax > 0) {
+                amount -= tax;
+                super._update(from, address(this), tax);
             }
         }
 
@@ -497,9 +537,7 @@ contract Kala is
             address(this),
             block.timestamp
         );
-
         uint256 ethBalance = address(this).balance;
-
         (success, ) = address(operationsWallet).call{value: ethBalance}("");
     }
 
