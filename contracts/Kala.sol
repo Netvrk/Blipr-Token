@@ -49,7 +49,7 @@ contract Kala is
     }
     Fees public fees;
 
-    uint256 private constant MAX_FEE = 6000;
+    uint256 private constant MAX_FEE = 5000;
     uint256 private constant DENM = 10000;
 
     mapping(address => bool) public isExcludedFromFees;
@@ -62,7 +62,6 @@ contract Kala is
 
     event Launch();
     event SetOperationsWallet(address newWallet, address oldWallet);
-    event SetmarketingWallet(address newWallet, address oldWallet);
     event SetLimitsEnabled(bool status);
     event SetTaxesEnabled(bool status);
     event SetLimits(
@@ -98,6 +97,7 @@ contract Kala is
     error ZeroTokenAmount();
     error ZeroEthAmount();
     error AccountBlocked();
+    error TransferFailed();
 
     modifier lockSwapBack() {
         inSwapBack = true;
@@ -539,6 +539,7 @@ contract Kala is
         );
         uint256 ethBalance = address(this).balance;
         (success, ) = address(operationsWallet).call{value: ethBalance}("");
+        require(success, TransferFailed());
     }
 
     /*
