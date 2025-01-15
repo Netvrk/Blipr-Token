@@ -65,8 +65,8 @@ contract SilkAI is
     }
     Fees public fees;
 
-    // Constants: maximum fee (50%) and denominator (10000 = basis points)
-    uint256 private constant MAX_FEE = 5000;
+    // Constants: maximum fee (20%) and denominator (10000 = basis points)
+    uint256 private constant MAX_FEE = 2000; // 20%
     uint256 private constant DENM = 10000;
 
     // Track addresses excluded from fees & limits, and AMM pairs
@@ -82,7 +82,7 @@ contract SilkAI is
 
     // Events to track significant state changes
     event Launch();
-    event SetOperationsWallet(address newWallet, address oldWallet);
+    event SetOperationsWallet(address newWallet);
     event SetLimitsEnabled(bool status);
     event SetTaxesEnabled(bool status);
     event SetLimits(
@@ -90,7 +90,7 @@ contract SilkAI is
         uint256 newMaxSell,
         uint256 newMaxWallet
     );
-    event SetSwapTokensAtAmount(uint256 newValue, uint256 oldValue);
+    event SetSwapTokensAtAmount(uint256 newValue);
     event SetFees(
         uint256 newBuyFee,
         uint256 newSellFee,
@@ -100,7 +100,7 @@ contract SilkAI is
     event ExcludeFromLimits(address account, bool isExcluded);
     event SetAutomatedMarketMakerPair(address pair, bool value);
     event WithdrawStuckTokens(address token, uint256 amount);
-    event AddressBlocked(address account, bool value);
+    event AccountBlocked(address account, bool value);
 
     // Custom errors for more explicit reverts
     error AlreadyLaunched();
@@ -118,7 +118,7 @@ contract SilkAI is
     error InsufficientToken();
     error ZeroTokenAmount();
     error ZeroEthAmount();
-    error AccountBlocked();
+    error AccountBlockedFromTransfer();
     error TransferFailed();
 
     // Lock mechanism to prevent nested calls that trigger swaps
@@ -140,7 +140,7 @@ contract SilkAI is
      */
     function initialize(address _operationsWallet) external initializer {
         // Initialize parent contracts
-        __ERC20_init("AI Silk", "ASLK");
+        __ERC20_init("AI Silk", "AISK");
         __ERC20Permit_init("AI Silk");
         __AccessControl_init();
         __UUPSUpgradeable_init();
@@ -156,29 +156,43 @@ contract SilkAI is
         uint256 totalSupply = 1_000_000_000 ether;
 
         // Set the operations wallet
-        operationsWallet = _operationsWallet;
+        _setOperationsWallet(_operationsWallet);
 
         // Set default limits
-        limits.maxBuy = (totalSupply * 50) / DENM; // 0.5%
-        limits.maxSell = (totalSupply * 50) / DENM; // 0.5%
-        limits.maxWallet = (totalSupply * 50) / DENM; // 0.5%
+        limits = Limits({
+            maxBuy: (totalSupply * 50) / DENM, // 0.5%
+            maxSell: (totalSupply * 50) / DENM, // 0.5%
+            maxWallet: (totalSupply * 100) / DENM // 1%
+        });
 
         // The contract will swap once it has 1% of total supply
-        swapTokensAtAmount = (totalSupply * 100) / DENM; // 1%
+
+        _setSwapTokensAtAmount((totalSupply * 100) / DENM); // 1%
 
         // By default, limits and tax are enabled
         isLimitsEnabled = true;
         isTaxEnabled = true;
 
-        // Default fees are set to 20% for buy, sell, and transfer
-        fees.buyFee = 2000; // 20%
-        fees.sellFee = 2000; // 20%
-        fees.transferFee = 2000; // 20%
+        // Default fees are set to 5% for buy, sell, and transfer
+        fees = Fees({
+            buyFee: 1000, // 10% buy fee
+            sellFee: 1000, // 10% sell fee
+            transferFee: 1000 // 10% transfer fee
+        });
 
         // Set the uniswap router address
         uniswapV2Router = IUniswapV2Router02(
             0x4752ba5DBc23f44D87826276BF6Fd6b1C372aD24
         );
+
+        // Create the pair (contract token <-> WETH)
+        uniswapV2Pair = IUniswapV2Factory(uniswapV2Router.factory()).createPair(
+                address(this),
+                uniswapV2Router.WETH()
+            );
+
+        // Mark this pair as an Automated Market Maker pair
+        _setAutomatedMarketMakerPair(uniswapV2Pair, true);
 
         // Exclude important addresses from fees
         _excludeFromFees(address(this), true);
@@ -246,14 +260,6 @@ contract SilkAI is
         require(tokenAmount > 0, ZeroTokenAmount());
         require(msg.value > 0, ZeroEthAmount());
 
-        // Create the pair (contract token <-> WETH)
-        uniswapV2Pair = IUniswapV2Factory(uniswapV2Router.factory()).createPair(
-                address(this),
-                uniswapV2Router.WETH()
-            );
-        // Mark this pair as an Automated Market Maker pair
-        _setAutomatedMarketMakerPair(uniswapV2Pair, true);
-
         // Transfer required tokens from the manager to this contract
         require(balanceOf(msg.sender) >= tokenAmount, InsufficientToken());
         _transfer(msg.sender, address(this), tokenAmount);
@@ -302,9 +308,7 @@ contract SilkAI is
     function setOperationsWallet(
         address newWallet
     ) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        address oldWallet = operationsWallet;
-        operationsWallet = newWallet;
-        emit SetOperationsWallet(newWallet, oldWallet);
+        _setOperationsWallet(newWallet);
     }
 
     /**
@@ -388,11 +392,8 @@ contract SilkAI is
         uint256 _totalSupply = totalSupply();
         require(amount >= (_totalSupply * 10) / DENM, AmountTooLow()); // 0.1%
         require(amount <= (_totalSupply * 200) / DENM, AmountTooHigh()); // 2%
-
-        uint256 oldValue = swapTokensAtAmount;
-        swapTokensAtAmount = amount;
-
-        emit SetSwapTokensAtAmount(amount, oldValue);
+        _setSwapTokensAtAmount(amount);
+        emit SetSwapTokensAtAmount(amount);
     }
 
     /**
@@ -422,7 +423,7 @@ contract SilkAI is
         bool value
     ) external onlyRole(MANAGER_ROLE) {
         isBlocked[account] = value;
-        emit AddressBlocked(account, value);
+        emit AccountBlocked(account, value);
     }
 
     /**
@@ -522,7 +523,10 @@ contract SilkAI is
         );
 
         // Check if either the sender or receiver is blocked
-        require(!isBlocked[from] && !isBlocked[to], AccountBlocked());
+        require(
+            !isBlocked[from] && !isBlocked[to],
+            AccountBlockedFromTransfer()
+        );
 
         // Apply transaction & wallet size limits if needed
         bool isLimited = isLimitsEnabled &&
@@ -662,5 +666,20 @@ contract SilkAI is
     ) internal virtual {
         automatedMarketMakerPairs[pair] = value;
         emit SetAutomatedMarketMakerPair(pair, value);
+    }
+
+    /**
+     * @dev Internal function to set the operations wallet.
+     */
+    function _setOperationsWallet(address newWallet) internal {
+        operationsWallet = newWallet;
+        emit SetOperationsWallet(newWallet);
+    }
+
+    /**
+     * @dev Internal function to set the swap threshold.
+     */
+    function _setSwapTokensAtAmount(uint256 amount) internal {
+        swapTokensAtAmount = amount;
     }
 }
