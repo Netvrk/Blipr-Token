@@ -10,7 +10,7 @@ import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol
 import "./interfaces/IUniswapV2Router02.sol";
 import "./interfaces/IUniswapV2Factory.sol";
 
-contract CenterFruit is
+contract Kala is
     Initializable,
     AccessControlUpgradeable,
     ERC20Upgradeable,
@@ -97,8 +97,8 @@ contract CenterFruit is
     }
 
     function initialize(address _operationsWallet) external initializer {
-        __ERC20_init("Center Fruit", "CENTER");
-        __ERC20Permit_init("Center Fruit");
+        __ERC20_init("Kala", "KALA");
+        __ERC20Permit_init("Kala");
         __AccessControl_init();
         __UUPSUpgradeable_init();
         __ReentrancyGuard_init();
@@ -107,7 +107,6 @@ contract CenterFruit is
 
         _grantRole(DEFAULT_ADMIN_ROLE, sender);
         _grantRole(MANAGER_ROLE, sender);
-        _grantRole(UPGRADER_ROLE, sender);
 
         uint256 totalSupply = 100_000_000 ether;
 
@@ -121,9 +120,9 @@ contract CenterFruit is
         isLimitsEnabled = true;
         isTaxEnabled = true;
 
-        buyFee = 1000;
-        sellFee = 1000;
-        transferFee = 1000;
+        buyFee = 1000; // 10% buy fee
+        sellFee = 1000; // 10% sell fee
+        transferFee = 1000; // 10% transfer fee
 
         uniswapV2Router = IUniswapV2Router02(
             0x4752ba5DBc23f44D87826276BF6Fd6b1C372aD24
@@ -210,12 +209,12 @@ contract CenterFruit is
 
     /*
      * /////////////////////////////////////////////////////////////////
-     * @dev Remove the limits
+     * @dev Set the limits
      * /////////////////////////////////////////////////////////////////
      */
-    function RemoveLimits() external onlyRole(MANAGER_ROLE) {
-        isLimitsEnabled = false;
-        emit SetLimitsEnabled(false);
+    function setLimitsEnabled(bool enabled) external onlyRole(MANAGER_ROLE) {
+        isLimitsEnabled = enabled;
+        emit SetLimitsEnabled(enabled);
     }
 
     /*
