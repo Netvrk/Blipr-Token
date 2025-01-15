@@ -218,40 +218,32 @@ contract Kala is
     fallback() external payable {}
 
     /**
-     * /////////////////////////////////////////////////////////////////
      * @dev Pause the contract. Only DEFAULT_ADMIN_ROLE can call.
      *      Pausing forbids token transfers (via ERC20Pausable).
-     * /////////////////////////////////////////////////////////////////
      */
     function pause() public onlyRole(DEFAULT_ADMIN_ROLE) {
         _pause();
     }
 
     /**
-     * /////////////////////////////////////////////////////////////////
      * @dev Unpause the contract. Only DEFAULT_ADMIN_ROLE can call.
-     * /////////////////////////////////////////////////////////////////
      */
     function unpause() public onlyRole(DEFAULT_ADMIN_ROLE) {
         _unpause();
     }
 
     /**
-     * /////////////////////////////////////////////////////////////////
      * @dev Authorization hook for UUPS upgrades.
      *      Only addresses with UPGRADER_ROLE can upgrade the contract.
-     * /////////////////////////////////////////////////////////////////
      */
     function _authorizeUpgrade(
         address newImplementation
     ) internal override onlyRole(UPGRADER_ROLE) {}
 
     /**
-     * /////////////////////////////////////////////////////////////////
      * @dev Launch the token by creating a Uniswap pair and adding liquidity.
      *      This can only be done once by MANAGER_ROLE.
      * @param tokenAmount The amount of tokens to add as liquidity.
-     * /////////////////////////////////////////////////////////////////
      */
     function launch(
         uint256 tokenAmount
@@ -289,10 +281,8 @@ contract Kala is
     }
 
     /**
-     * /////////////////////////////////////////////////////////////////
      * @dev Enable or disable the buy/sell/wallet limits.
      *      Only MANAGER_ROLE can call.
-     * /////////////////////////////////////////////////////////////////
      */
     function setLimitsEnabled(bool enabled) external onlyRole(MANAGER_ROLE) {
         isLimitsEnabled = enabled;
@@ -300,10 +290,8 @@ contract Kala is
     }
 
     /**
-     * /////////////////////////////////////////////////////////////////
      * @dev Set the operations wallet (receives swap proceeds).
      *      Only DEFAULT_ADMIN_ROLE can call.
-     * /////////////////////////////////////////////////////////////////
      */
     function setOperationsWallet(
         address newWallet
@@ -312,10 +300,8 @@ contract Kala is
     }
 
     /**
-     * /////////////////////////////////////////////////////////////////
      * @dev Enable or disable tax (fee).
      *      Only MANAGER_ROLE can call.
-     * /////////////////////////////////////////////////////////////////
      */
     function setTaxesEnabled(bool value) external onlyRole(MANAGER_ROLE) {
         isTaxEnabled = value;
@@ -323,11 +309,9 @@ contract Kala is
     }
 
     /**
-     * /////////////////////////////////////////////////////////////////
      * @dev Set the fees for buying, selling, and transferring.
      *      Only MANAGER_ROLE can call.
      *      Each fee cannot exceed MAX_FEE (currently 50%).
-     * /////////////////////////////////////////////////////////////////
      */
     function setFees(
         uint256 newBuyFee,
@@ -348,11 +332,9 @@ contract Kala is
     }
 
     /**
-     * /////////////////////////////////////////////////////////////////
      * @dev Set the transaction and wallet limits.
      *      maxBuy, maxSell, and maxWallet must be within 0.01% to 5% range of total supply.
      *      Only MANAGER_ROLE can call.
-     * /////////////////////////////////////////////////////////////////
      */
     function setLimits(
         uint256 newMaxBuy,
@@ -380,11 +362,9 @@ contract Kala is
     }
 
     /**
-     * /////////////////////////////////////////////////////////////////
      * @dev Update the swapTokensAtAmount (threshold to swap).
      *      Must be between 0.1% and 2% of the total supply.
      *      Only MANAGER_ROLE can call.
-     * /////////////////////////////////////////////////////////////////
      */
     function setSwapTokensAtAmount(
         uint256 amount
@@ -397,11 +377,9 @@ contract Kala is
     }
 
     /**
-     * /////////////////////////////////////////////////////////////////
      * @dev Set (or unset) an address as an automated market maker pair.
      *      Typically used for DEX pairs.
      *      Only MANAGER_ROLE can call.
-     * /////////////////////////////////////////////////////////////////
      */
     function setAutomaticMarketMakerPair(
         address pair,
@@ -413,10 +391,8 @@ contract Kala is
     }
 
     /**
-     * /////////////////////////////////////////////////////////////////
      * @dev Block (or unblock) an account from sending/receiving tokens.
      *      Only MANAGER_ROLE can call.
-     * /////////////////////////////////////////////////////////////////
      */
     function setBlockAccount(
         address account,
@@ -427,10 +403,8 @@ contract Kala is
     }
 
     /**
-     * /////////////////////////////////////////////////////////////////
      * @dev Exclude a batch of accounts from fees.
      *      Only MANAGER_ROLE can call.
-     * /////////////////////////////////////////////////////////////////
      */
     function excludeFromFees(
         address[] calldata accounts,
@@ -442,10 +416,8 @@ contract Kala is
     }
 
     /**
-     * /////////////////////////////////////////////////////////////////
      * @dev Exclude a batch of accounts from limits.
      *      Only MANAGER_ROLE can call.
-     * /////////////////////////////////////////////////////////////////
      */
     function excludeFromLimits(
         address[] calldata accounts,
@@ -457,11 +429,9 @@ contract Kala is
     }
 
     /**
-     * /////////////////////////////////////////////////////////////////
      * @dev Withdraw stuck tokens (including ETH if _token == ZERO_ADDRESS)
      *      Only DEFAULT_ADMIN_ROLE can call.
      *      Uses ReentrancyGuard to prevent reentrant calls.
-     * /////////////////////////////////////////////////////////////////
      */
     function withdrawStuckTokens(
         address _token
@@ -485,11 +455,9 @@ contract Kala is
     }
 
     /**
-     * /////////////////////////////////////////////////////////////////
      * @dev Manual swap of tokens stored in the contract for ETH,
      *      using a specified percentage of the contract's token balance.
      *      Only MANAGER_ROLE can call.
-     * /////////////////////////////////////////////////////////////////
      */
     function manualSwap(
         uint256 _percen
@@ -500,14 +468,12 @@ contract Kala is
     }
 
     /**
-     * /////////////////////////////////////////////////////////////////
      * @dev Internal override of _update (from ERC20Upgradeable):
      *      - Checks if token is launched unless sender/receiver is excluded
      *      - Checks if addresses are blocked
      *      - Enforces transaction limits if enabled
      *      - Calculates fees if taxes are enabled
      *      - Swaps tokens to ETH when threshold is reached
-     * /////////////////////////////////////////////////////////////////
      */
     function _update(
         address from,
@@ -612,11 +578,9 @@ contract Kala is
     }
 
     /**
-     * /////////////////////////////////////////////////////////////////
      * @dev Internal function to swap contract tokens for ETH,
      *      then send ETH to the operations wallet.
      *      Protected by lockSwapBack modifier to prevent reentrancy.
-     * /////////////////////////////////////////////////////////////////
      */
     function _swapBack(uint256 balance) internal virtual lockSwapBack {
         // Build the path for token -> WETH
