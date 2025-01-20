@@ -1,6 +1,13 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity 0.8.28;
 
+// Importing OpenZeppelin Upgradeable libraries and interfaces for:
+// - ERC20 (basic token logic)
+// - ERC20Permit (permit support via EIP-2612 signatures)
+// - ERC20Pausable (pausable token transfers)
+// - AccessControl (role-based access control)
+// - UUPSUpgradeable (upgradeable contract pattern)
+// - ReentrancyGuardUpgradeable (protection from reentrancy attacks)
 import "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC20PermitUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC20PausableUpgradeable.sol";
@@ -8,7 +15,7 @@ import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol"
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 
-contract SilkAI is
+contract Kelp is
     Initializable,
     AccessControlUpgradeable,
     ERC20Upgradeable,
@@ -93,8 +100,8 @@ contract SilkAI is
      */
     function initialize() external initializer {
         // Initialize parent contracts
-        __ERC20_init("SKLI AI", "SKLI");
-        __ERC20Permit_init("SKLI AI");
+        __ERC20_init("Kelp AI", "KLXP");
+        __ERC20Permit_init("Kelp AI");
         __AccessControl_init();
         __UUPSUpgradeable_init();
         __ReentrancyGuard_init();
