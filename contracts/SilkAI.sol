@@ -76,7 +76,6 @@ contract SilkAI is
     error AlreadyLaunched();
     error AmountOutOfBounds();
     error FeeTooHigh();
-    error AMMAlreadySet();
     error NoTokens();
     error FailedToWithdrawTokens();
     error NotLaunched();
@@ -248,8 +247,6 @@ contract SilkAI is
         address pair,
         bool value
     ) external onlyRole(MANAGER_ROLE) {
-        // If already set to true, revert to avoid re-setting
-        require(!automatedMarketMakerPairs[pair], AMMAlreadySet());
         automatedMarketMakerPairs[pair] = value;
         emit SetAutomatedMarketMakerPair(pair, value);
     }
@@ -313,7 +310,12 @@ contract SilkAI is
         address from,
         address to,
         uint256 amount
-    ) internal virtual override(ERC20Upgradeable, ERC20PausableUpgradeable) {
+    )
+        internal
+        virtual
+        override(ERC20Upgradeable, ERC20PausableUpgradeable)
+        whenNotPaused
+    {
         // Ensure token is launched or sender/receiver is excluded
         require(
             isLaunched ||
