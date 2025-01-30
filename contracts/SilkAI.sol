@@ -105,13 +105,13 @@ contract SilkAI is
         _grantRole(MANAGER_ROLE, sender);
 
         // Define total supply: 1 billion tokens, 18 decimals => 1_000_000_000 ether
-        uint256 totalSupply = 1_000_000_000 ether;
+        uint256 _totalSupply = 1_000_000_000 ether;
 
         // Set default limits
         limits = Limits({
-            maxBuy: (totalSupply * 50) / DENM, //  0.5% of total supply
-            maxSell: (totalSupply * 50) / DENM, // 0.5% of total supply
-            maxWallet: (totalSupply * 100) / DENM // 1% of total supply
+            maxBuy: (_totalSupply * 50) / DENM, //  0.5% of total supply
+            maxSell: (_totalSupply * 50) / DENM, // 0.5% of total supply
+            maxWallet: (_totalSupply * 100) / DENM // 1% of total supply
         });
 
         // By default, limits and tax are enabled
@@ -127,7 +127,7 @@ contract SilkAI is
         _excludeFromLimits(sender, true);
 
         // Mint the total supply to the deployer (sender)
-        _mint(sender, totalSupply);
+        _mint(sender, _totalSupply);
     }
 
     // Allow contract to receive ETH
