@@ -90,7 +90,7 @@ contract SilkAI is
     /**
      * @dev Initializes the contract after deployment behind a proxy.
      */
-    function initialize() external initializer {
+    function initialize(address ownerAddress) external initializer {
         // Initialize parent contracts
         __ERC20_init("SKLI AI", "SKLI");
         __ERC20Permit_init("SKLI AI");
@@ -101,8 +101,9 @@ contract SilkAI is
         address sender = msg.sender;
 
         // Assign default roles
-        _grantRole(DEFAULT_ADMIN_ROLE, sender);
+        _grantRole(DEFAULT_ADMIN_ROLE, ownerAddress); // Multisig wallet
         _grantRole(MANAGER_ROLE, sender);
+        // Update upgrader when needed in future
 
         // Define total supply: 1 billion tokens, 18 decimals => 1_000_000_000 ether
         uint256 _totalSupply = 1_000_000_000 ether;
@@ -125,9 +126,10 @@ contract SilkAI is
         _excludeFromLimits(address(this), true);
         _excludeFromLimits(address(0), true);
         _excludeFromLimits(sender, true);
+        _excludeFromLimits(ownerAddress, true);
 
-        // Mint the total supply to the deployer (sender)
-        _mint(sender, _totalSupply);
+        // Mint the total supply to the owner
+        _mint(ownerAddress, _totalSupply);
     }
 
     // Allow contract to receive ETH
