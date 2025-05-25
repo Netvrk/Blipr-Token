@@ -4,8 +4,18 @@ async function main() {
     // get delpoyer wallet client
     // const [deployer] = await ethers.getSigners()
     const ownerAddress = "0x9bE24EB303DdD438bAD2869D18bb9926605D7A41";
-    const token = await ethers.getContractFactory("SilkAI");
-    const deployedToken = await upgrades.deployProxy(token, [ownerAddress], { kind: 'uups' });
+    const token = await ethers.getContractFactory("SilkAIv3");
+    
+    // Increase gas limit for deployment
+    const deployedToken = await upgrades.deployProxy(
+        token, 
+        [ownerAddress], 
+        { 
+            kind: 'uups',
+            initializer: 'initialize',
+            useDefenderDeploy: false
+        }
+    );
 
     await deployedToken.waitForDeployment();
     console.log(`Deployed token to ${await deployedToken.getAddress()}`);

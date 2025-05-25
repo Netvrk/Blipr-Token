@@ -17,7 +17,7 @@ const config: HardhatUserConfig = {
   },
   networks: {
     base: {
-      url: "https://rpc.ankr.com/base",
+      url: "https://developer-access-mainnet.base.org",
       accounts: process.env.PRIVATE_KEY_1 !== undefined ? [process.env.PRIVATE_KEY_1] : [],
     },
   },
@@ -26,6 +26,10 @@ const config: HardhatUserConfig = {
       base: process.env.BASE_API_KEY || "",
     },
   },
+  defender: {
+    apiKey: process.env.DEFENDER_API_KEY || "",
+    apiSecret: process.env.DEFENDER_API_SECRET || "",
+  }
 };
 
 export default config;
