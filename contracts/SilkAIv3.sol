@@ -130,69 +130,50 @@ contract SilkAIv3 is
         address sender = msg.sender;
 
         // Assign default roles
-        _grantRole(DEFAULT_ADMIN_ROLE, ownerAddress); // Multisig wallet
+        _grantRole(DEFAULT_ADMIN_ROLE, ownerAddress);
         _grantRole(MANAGER_ROLE, sender);
-        // Update upgrader when needed in future
 
-        // Define total supply: 1 billion tokens, 18 decimals => 1_000_000_000 ether
+        // Define total supply
         uint256 _totalSupply = 1_000_000_000 ether;
 
         // Set default limits
         limits = Limits({
-            maxBuy: (_totalSupply * 500) / DENM, //  5% of total supply
-            maxSell: (_totalSupply * 500) / DENM, // 5% of total supply
-            maxWallet: (_totalSupply * 800) / DENM // 8% of total supply
+            maxBuy: (_totalSupply * 500) / DENM,
+            maxSell: (_totalSupply * 500) / DENM,
+            maxWallet: (_totalSupply * 800) / DENM
         });
 
-        // By default, limits and tax are enabled
         isLimitsEnabled = true;
         isTaxEnabled = true;
+        swapTokensAtAmount = (_totalSupply * 10) / DENM;
+        fees = Fees({buyFee: 500, sellFee: 500, transferFee: 500});
 
-        swapTokensAtAmount = (_totalSupply * 10) / DENM; // 0.1% of total supply
+        // Set router address but don't create pair yet
+        aerodomeV2Router = IAerodomeV2Router02(
+            0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43
+        );
 
-        // Default fees are set to 10% for buy, sell, and transfer
-        fees = Fees({buyFee: 500, sellFee: 500, transferFee: 500}); // 5%
-
-        // Exclude important addresses from limits
+        // Exclude important addresses
         _excludeFromLimits(address(this), true);
         _excludeFromLimits(address(0), true);
         _excludeFromLimits(sender, true);
         _excludeFromLimits(ownerAddress, true);
 
-        // Set operations wallet
         operationsWallet = ownerAddress;
 
-        // Mint the total supply to the owner
+        // Mint tokens
         _mint(ownerAddress, _totalSupply);
     }
 
-    // Allow contract to receive ETH
-    receive() external payable {}
+    // Add a function to create the pair after deployment
+    function setupPair() external onlyRole(MANAGER_ROLE) {
+        require(aerodomeV2Pair == address(0), "Pair already created");
+        aerodomeV2Pair = IAerodomeV2Factory(aerodomeV2Router.defaultFactory())
+            .createPool(address(this), aerodomeV2Router.weth(), false);
 
-    fallback() external payable {}
-
-    /**
-     * @dev Pause the contract. Only DEFAULT_ADMIN_ROLE can call.
-     *      Pausing forbids token transfers (via ERC20Pausable).
-     */
-    function pause() public onlyRole(DEFAULT_ADMIN_ROLE) {
-        _pause();
+        _setAutomatedMarketMakerPair(aerodomeV2Pair, true);
+        _excludeFromLimits(aerodomeV2Pair, true);
     }
-
-    /**
-     * @dev Unpause the contract. Only DEFAULT_ADMIN_ROLE can call.
-     */
-    function unpause() public onlyRole(DEFAULT_ADMIN_ROLE) {
-        _unpause();
-    }
-
-    /**
-     * @dev Authorization hook for UUPS upgrades.
-     *      Only addresses with UPGRADER_ROLE can upgrade the contract.
-     */
-    function _authorizeUpgrade(
-        address newImplementation
-    ) internal override onlyRole(UPGRADER_ROLE) {}
 
     /**
      * @dev Launch the token and enable transfers.
@@ -206,15 +187,6 @@ contract SilkAIv3 is
         require(tokenAmount > 0, ZeroTokenAmount());
         require(msg.value > 0, ZeroEthAmount());
         require(balanceOf(msg.sender) >= tokenAmount, InsufficientToken());
-
-        // Initialize Aerodome V2 router and pair
-        aerodomeV2Router = IAerodomeV2Router02(
-            0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43
-        );
-        aerodomeV2Pair = IAerodomeV2Factory(aerodomeV2Router.defaultFactory())
-            .createPool(address(this), aerodomeV2Router.weth(), false);
-        _excludeFromLimits(aerodomeV2Pair, true);
-        automatedMarketMakerPairs[aerodomeV2Pair] = true;
 
         // Transfer tokens to this contract
         _transfer(msg.sender, address(this), tokenAmount);
@@ -312,6 +284,20 @@ contract SilkAIv3 is
     }
 
     /**
+     * @dev Internal function to set or unset an address as an automated market maker pair.
+     * @param pair The address to set or unset as an AMM pair
+     * @param value True to set as AMM pair, false to unset
+     */
+    function _setAutomatedMarketMakerPair(
+        address pair,
+        bool value
+    ) internal virtual {
+        require(pair != address(0), "Cannot set zero address");
+        automatedMarketMakerPairs[pair] = value;
+        emit SetAutomatedMarketMakerPair(pair, value);
+    }
+
+    /**
      * @dev Set (or unset) an address as an automated market maker pair.
      *      Typically used for DEX pairs.
      *      Only MANAGER_ROLE can call.
@@ -320,8 +306,7 @@ contract SilkAIv3 is
         address pair,
         bool value
     ) external onlyRole(MANAGER_ROLE) {
-        automatedMarketMakerPairs[pair] = value;
-        emit SetAutomatedMarketMakerPair(pair, value);
+        _setAutomatedMarketMakerPair(pair, value);
     }
 
     /**
@@ -530,4 +515,32 @@ contract SilkAIv3 is
         require(lpBalance > 0, "No LP tokens");
         IERC20(aerodomeV2Pair).transfer(recipient, lpBalance);
     }
+
+    // Allow contract to receive ETH
+    receive() external payable {}
+
+    fallback() external payable {}
+
+    /**
+     * @dev Pause the contract. Only DEFAULT_ADMIN_ROLE can call.
+     *      Pausing forbids token transfers (via ERC20Pausable).
+     */
+    function pause() public onlyRole(DEFAULT_ADMIN_ROLE) {
+        _pause();
+    }
+
+    /**
+     * @dev Unpause the contract. Only DEFAULT_ADMIN_ROLE can call.
+     */
+    function unpause() public onlyRole(DEFAULT_ADMIN_ROLE) {
+        _unpause();
+    }
+
+    /**
+     * @dev Authorization hook for UUPS upgrades.
+     *      Only addresses with UPGRADER_ROLE can upgrade the contract.
+     */
+    function _authorizeUpgrade(
+        address newImplementation
+    ) internal override onlyRole(UPGRADER_ROLE) {}
 }

