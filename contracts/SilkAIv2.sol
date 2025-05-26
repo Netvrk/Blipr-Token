@@ -141,7 +141,7 @@ contract SilkAIv2 is
         isLimitsEnabled = true;
         isTaxEnabled = true;
 
-        swapTokensAtAmount = (_totalSupply * 10) / DENM; // 0.05% of total supply
+        swapTokensAtAmount = (_totalSupply * 5) / DENM; // 0.05% of total supply
 
         // Default fees are set to 1% for buy, sell, and transfer
         fees = Fees({buyFee: 200, sellFee: 200, transferFee: 0}); // 2% buy/sell tax
@@ -347,17 +347,26 @@ contract SilkAIv2 is
     function withdrawTokens(
         address _token
     ) external onlyRole(DEFAULT_ADMIN_ROLE) nonReentrant {
-        uint256 amount = _token == address(0)
-            ? address(this).balance
-            : IERC20(_token).balanceOf(address(this));
-        require(amount > 0, NoTokens());
+        uint256 amount;
 
         if (_token == address(0)) {
+            // Withdraw ETH
+            amount = address(this).balance;
+            require(amount > 0, NoTokens());
             (bool success, ) = address(msg.sender).call{value: amount}("");
             require(success, FailedToWithdrawTokens());
+        } else if (_token == address(this)) {
+            // Withdraw this contract's own tokens
+            amount = balanceOf(address(this));
+            require(amount > 0, NoTokens());
+            _transfer(address(this), msg.sender, amount);
         } else {
+            // Withdraw other ERC20 tokens
+            amount = IERC20(_token).balanceOf(address(this));
+            require(amount > 0, NoTokens());
             IERC20(_token).transfer(msg.sender, amount);
         }
+
         emit WithdrawStuckTokens(_token, amount);
     }
 
@@ -479,14 +488,5 @@ contract SilkAIv2 is
     function _excludeFromLimits(address account, bool value) internal virtual {
         isExcludedFromLimits[account] = value;
         emit ExcludeFromLimits(account, value);
-    }
-
-    function transferLPTokens(
-        address recipient
-    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        require(isLaunched, "Not launched yet");
-        uint256 lpBalance = IERC20(uniswapV2Pair).balanceOf(address(this));
-        require(lpBalance > 0, "No LP tokens");
-        IERC20(uniswapV2Pair).transfer(recipient, lpBalance);
     }
 }
