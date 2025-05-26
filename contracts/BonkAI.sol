@@ -142,8 +142,8 @@ contract BonkAI is
         // Set default limits
         // 5% maxbuy, 5% maxsell, 10% maxwallet
         limits = Limits({
-            maxBuy: (_totalSupply * 155) / DENM, // 0.5% of supply
-            maxSell: (_totalSupply * 25) / DENM, // 0.25% of supply
+            maxBuy: (_totalSupply * 100) / DENM, // 1% of supply
+            maxSell: (_totalSupply * 100) / DENM, // 1% of supply
             maxWallet: (_totalSupply * 100) / DENM // 1% of supply
         });
 
@@ -483,6 +483,12 @@ contract BonkAI is
         super._update(from, to, amount);
     }
 
+    function manualSwap() external onlyRole(MANAGER_ROLE) nonReentrant {
+        uint256 contractTokenBalance = balanceOf(address(this));
+        require(contractTokenBalance > 0, "No tokens to swap");
+        _swapTokensForEth(contractTokenBalance);
+    }
+
     function _swapBack(uint256 balance) internal virtual lockSwapBack {
         _swapTokensForEth(balance);
     }
@@ -511,27 +517,9 @@ contract BonkAI is
         );
 
         uint256 ethBalance = address(this).balance;
-        uint256 operationsAmount = ethBalance / 2; // 50% to operations wallet
-
-        (success, ) = address(operationsWallet).call{value: operationsAmount}(
-            ""
-        );
-        // Remaining 50% stays in contract
+        (success, ) = address(operationsWallet).call{value: ethBalance}("");
     }
 
-    /**
-     * @dev Manually trigger a swap of tokens for ETH
-     *      Only MANAGER_ROLE can call.
-     */
-    function manualSwap() external onlyRole(MANAGER_ROLE) nonReentrant {
-        uint256 contractTokenBalance = balanceOf(address(this));
-        require(contractTokenBalance > 0, "No tokens to swap");
-        _swapTokensForEth(contractTokenBalance);
-    }
-
-    /**
-     * @dev Internal function to exclude an account from limits.
-     */
     function _excludeFromLimits(address account, bool value) internal virtual {
         isExcludedFromLimits[account] = value;
         emit ExcludeFromLimits(account, value);
@@ -542,30 +530,18 @@ contract BonkAI is
         emit ExcludeFromTax(account, value);
     }
 
-    // Allow contract to receive ETH
     receive() external payable {}
 
     fallback() external payable {}
 
-    /**
-     * @dev Pause the contract. Only DEFAULT_ADMIN_ROLE can call.
-     *      Pausing forbids token transfers (via ERC20Pausable).
-     */
     function pause() public onlyRole(DEFAULT_ADMIN_ROLE) {
         _pause();
     }
 
-    /**
-     * @dev Unpause the contract. Only DEFAULT_ADMIN_ROLE can call.
-     */
     function unpause() public onlyRole(DEFAULT_ADMIN_ROLE) {
         _unpause();
     }
 
-    /**
-     * @dev Authorization hook for UUPS upgrades.
-     *      Only addresses with UPGRADER_ROLE can upgrade the contract.
-     */
     function _authorizeUpgrade(
         address newImplementation
     ) internal override onlyRole(UPGRADER_ROLE) {}
