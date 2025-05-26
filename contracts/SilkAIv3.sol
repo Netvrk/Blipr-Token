@@ -138,28 +138,32 @@ contract SilkAIv3 is
 
         // Set default limits
         limits = Limits({
-            maxBuy: (_totalSupply * 500) / DENM,
-            maxSell: (_totalSupply * 500) / DENM,
-            maxWallet: (_totalSupply * 800) / DENM
+            maxBuy: (_totalSupply * 50) / DENM, // 0.5% of supply
+            maxSell: (_totalSupply * 25) / DENM, // 0.25% of supply
+            maxWallet: (_totalSupply * 100) / DENM // 1% of supply
         });
 
         isLimitsEnabled = true;
         isTaxEnabled = true;
-        swapTokensAtAmount = (_totalSupply * 10) / DENM;
-        fees = Fees({buyFee: 500, sellFee: 500, transferFee: 500});
+        swapTokensAtAmount = (_totalSupply * 5) / DENM; // 0.05% of total supply
+
+        // Default fees are set to 1% for buy, sell, and transfer
+        fees = Fees({
+            buyFee: 300, // 3% buy tax
+            sellFee: 500, // 5% sell tax
+            transferFee: 0 // 0% transfer tax
+        });
 
         // Set router address but don't create pair yet
         aerodomeV2Router = IAerodomeV2Router02(
             0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43
         );
-
+        operationsWallet = ownerAddress;
         // Exclude important addresses
         _excludeFromLimits(address(this), true);
         _excludeFromLimits(address(0), true);
         _excludeFromLimits(sender, true);
         _excludeFromLimits(ownerAddress, true);
-
-        operationsWallet = ownerAddress;
 
         // Mint tokens
         _mint(ownerAddress, _totalSupply);
@@ -208,6 +212,8 @@ contract SilkAIv3 is
             address(aerodomeV2Router),
             type(uint256).max
         );
+
+        _setAutomatedMarketMakerPair(aerodomeV2Pair, true);
 
         isLaunched = true;
         emit Launch();
@@ -401,12 +407,25 @@ contract SilkAIv3 is
             AccountBlockedFromTransfer()
         );
 
+        // Skip limits and fees during swap operations
+        if (inSwapBack) {
+            super._update(from, to, amount);
+            return;
+        }
+
+        // Check if we should swap accumulated tokens
+        uint256 contractTokenBalance = balanceOf(address(this));
+        bool shouldSwap = contractTokenBalance >= swapTokensAtAmount;
+
+        // Perform swap if threshold reached and not buying tokens
+        if (shouldSwap && !automatedMarketMakerPairs[from]) {
+            _swapBack(contractTokenBalance);
+            lastSwapBackExecutionBlock = block.number;
+        }
+
         // Apply transaction & wallet size limits if needed
-        if (
-            isLimitsEnabled &&
-            !isExcludedFromLimits[from] &&
-            !isExcludedFromLimits[to]
-        ) {
+        bool isExempt = isExcludedFromLimits[from] || isExcludedFromLimits[to];
+        if (isLimitsEnabled && !isExempt) {
             // If buying from an AMM pair
             if (automatedMarketMakerPairs[from]) {
                 require(
@@ -425,11 +444,7 @@ contract SilkAIv3 is
         }
 
         // Apply tax logic if enabled
-        if (
-            isTaxEnabled &&
-            !isExcludedFromLimits[from] &&
-            !isExcludedFromLimits[to]
-        ) {
+        if (isTaxEnabled && !isExempt) {
             uint256 tax = automatedMarketMakerPairs[from]
                 ? (amount * fees.buyFee) / DENM
                 : automatedMarketMakerPairs[to]
@@ -440,18 +455,6 @@ contract SilkAIv3 is
             if (tax > 0) {
                 amount -= tax;
                 super._update(from, address(this), tax);
-            }
-        }
-        uint256 balance = balanceOf(address(this));
-
-        bool takeFee = isTaxEnabled &&
-            !inSwapBack &&
-            !(isExcludedFromLimits[from] || isExcludedFromLimits[to]);
-        bool shouldSwap = balance >= swapTokensAtAmount;
-        if (takeFee && !automatedMarketMakerPairs[from] && shouldSwap) {
-            if (block.number > lastSwapBackExecutionBlock) {
-                _swapBack(balance);
-                lastSwapBackExecutionBlock = block.number;
             }
         }
 

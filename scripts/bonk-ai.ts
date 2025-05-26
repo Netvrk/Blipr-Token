@@ -4,7 +4,7 @@ async function main() {
     // get delpoyer wallet client
     // const [deployer] = await ethers.getSigners()
     const ownerAddress = "0x9bE24EB303DdD438bAD2869D18bb9926605D7A41";
-    const token = await ethers.getContractFactory("SilkAIv2");
+    const token = await ethers.getContractFactory("BonkAI");
     
     // Increase gas limit for deployment
     const deployedToken = await upgrades.deployProxy(

@@ -11,7 +11,7 @@ import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol
 import "./interfaces/IUniswapV2Factory.sol";
 import "./interfaces/IUniswapV2Router02.sol";
 
-contract SilkAIv2 is
+contract BonkAI is
     Initializable,
     AccessControlUpgradeable,
     ERC20Upgradeable,
@@ -56,6 +56,7 @@ contract SilkAIv2 is
 
     // Track addresses excluded from fees & limits, and AMM pairs
     mapping(address => bool) public isExcludedFromLimits;
+    mapping(address => bool) public isExcludedFromTax;
     mapping(address => bool) public automatedMarketMakerPairs;
 
     // Addresses blocked from sending and receiving tokens
@@ -76,10 +77,12 @@ contract SilkAIv2 is
         uint256 newTransferFee
     );
     event ExcludeFromLimits(address account, bool isExcluded);
+    event ExcludeFromTax(address account, bool isExcluded);
     event SetAutomatedMarketMakerPair(address pair, bool value);
     event SetSwapTokensAtAmount(uint256 newValue, uint256 oldValue);
     event WithdrawStuckTokens(address token, uint256 amount);
     event AccountBlocked(address account, bool value);
+    event SwapTokenAmountUpdated(uint256 newValue, uint256 oldValue);
 
     // Custom errors for more explicit reverts
     error AlreadyLaunched();
@@ -89,6 +92,8 @@ contract SilkAIv2 is
     error FailedToWithdrawTokens();
     error NotLaunched();
     error AccountBlockedFromTransfer();
+    error AmountTooSmall();
+    error AmountTooLarge();
 
     // Swap and Liquify
     address public operationsWallet;
@@ -111,7 +116,10 @@ contract SilkAIv2 is
     /**
      * @dev Initializes the contract after deployment behind a proxy.
      */
-    function initialize(address ownerAddress) external initializer {
+    function initialize(
+        address _ownerAddress,
+        address _operationsWallet
+    ) external initializer {
         // Initialize parent contracts
         __ERC20_init("BONK AI", "BONKAI");
         __ERC20Permit_init("BONK AI");
@@ -120,9 +128,11 @@ contract SilkAIv2 is
         __ReentrancyGuard_init();
 
         address sender = msg.sender;
+        // Set operations wallet
+        operationsWallet = _operationsWallet;
 
         // Assign default roles
-        _grantRole(DEFAULT_ADMIN_ROLE, ownerAddress); // Multisig wallet
+        _grantRole(DEFAULT_ADMIN_ROLE, _ownerAddress); // Multisig wallet
         _grantRole(MANAGER_ROLE, sender);
         // Update upgrader when needed in future
 
@@ -132,9 +142,9 @@ contract SilkAIv2 is
         // Set default limits
         // 5% maxbuy, 5% maxsell, 10% maxwallet
         limits = Limits({
-            maxBuy: (_totalSupply * 400) / DENM, //  4% of total supply
-            maxSell: (_totalSupply * 200) / DENM, // 2% of total supply
-            maxWallet: (_totalSupply * 500) / DENM // 5% of total supply
+            maxBuy: (_totalSupply * 155) / DENM, // 0.5% of supply
+            maxSell: (_totalSupply * 25) / DENM, // 0.25% of supply
+            maxWallet: (_totalSupply * 100) / DENM // 1% of supply
         });
 
         // By default, limits and tax are enabled
@@ -144,48 +154,29 @@ contract SilkAIv2 is
         swapTokensAtAmount = (_totalSupply * 5) / DENM; // 0.05% of total supply
 
         // Default fees are set to 1% for buy, sell, and transfer
-        fees = Fees({buyFee: 200, sellFee: 200, transferFee: 0}); // 2% buy/sell tax
-
-        // Set operations wallet
-        operationsWallet = ownerAddress;
+        fees = Fees({
+            buyFee: 300, // 3% buy tax
+            sellFee: 500, // 5% sell tax
+            transferFee: 0 // 0% transfer tax
+        });
 
         // Exclude important addresses from limits
         _excludeFromLimits(address(this), true);
         _excludeFromLimits(address(0), true);
         _excludeFromLimits(sender, true);
-        _excludeFromLimits(ownerAddress, true);
+        _excludeFromLimits(_ownerAddress, true);
+        _excludeFromLimits(_operationsWallet, true);
+
+        // Exclude important addresses from tax
+        _excludeFromTax(address(this), true);
+        _excludeFromTax(address(0), true);
+        _excludeFromTax(sender, true);
+        _excludeFromTax(_ownerAddress, true);
+        _excludeFromTax(_operationsWallet, true);
 
         // Mint the total supply to the owner
-        _mint(ownerAddress, _totalSupply);
+        _mint(_ownerAddress, _totalSupply);
     }
-
-    // Allow contract to receive ETH
-    receive() external payable {}
-
-    fallback() external payable {}
-
-    /**
-     * @dev Pause the contract. Only DEFAULT_ADMIN_ROLE can call.
-     *      Pausing forbids token transfers (via ERC20Pausable).
-     */
-    function pause() public onlyRole(DEFAULT_ADMIN_ROLE) {
-        _pause();
-    }
-
-    /**
-     * @dev Unpause the contract. Only DEFAULT_ADMIN_ROLE can call.
-     */
-    function unpause() public onlyRole(DEFAULT_ADMIN_ROLE) {
-        _unpause();
-    }
-
-    /**
-     * @dev Authorization hook for UUPS upgrades.
-     *      Only addresses with UPGRADER_ROLE can upgrade the contract.
-     */
-    function _authorizeUpgrade(
-        address newImplementation
-    ) internal override onlyRole(UPGRADER_ROLE) {}
 
     /**
      * @dev Launch the token and enable transfers.
@@ -197,12 +188,16 @@ contract SilkAIv2 is
         uniswapV2Router = IUniswapV2Router02(
             0x4752ba5DBc23f44D87826276BF6Fd6b1C372aD24
         );
-        address uniswapFeeCollector = 0x5d64D14D2CF4fe5fe4e65B1c7E3D11e18D493091;
+
+        _approve(address(this), address(uniswapV2Router), type(uint256).max);
+
         uniswapV2Pair = IUniswapV2Factory(uniswapV2Router.factory()).createPair(
                 address(this),
                 uniswapV2Router.WETH()
             );
-        _excludeFromLimits(uniswapFeeCollector, true);
+        IERC20(uniswapV2Pair).approve(address(uniswapV2Router), type(uint).max);
+        // address uniswapFeeCollector = 0x5d64D14D2CF4fe5fe4e65B1c7E3D11e18D493091;
+        // _excludeFromLimits(uniswapFeeCollector, true);
         _setAutomatedMarketMakerPair(uniswapV2Pair, true);
         emit Launch();
     }
@@ -326,6 +321,15 @@ contract SilkAIv2 is
         emit AccountBlocked(account, value);
     }
 
+    function setTokensForSwap(uint256 amount) external onlyRole(MANAGER_ROLE) {
+        uint256 totalSupplyTokens = totalSupply();
+        require(amount >= (totalSupplyTokens * 1) / DENM, AmountTooSmall()); // 0.01% of total supply
+        require(amount <= (totalSupplyTokens * 500) / DENM, AmountTooLarge()); // 5% of total supply
+        uint256 oldValue = swapTokensAtAmount;
+        swapTokensAtAmount = amount;
+        emit SwapTokenAmountUpdated(amount, oldValue);
+    }
+
     /**
      * @dev Exclude a batch of accounts from limits.
      *      Only MANAGER_ROLE can call.
@@ -336,6 +340,19 @@ contract SilkAIv2 is
     ) external onlyRole(MANAGER_ROLE) {
         for (uint256 i = 0; i < accounts.length; i++) {
             _excludeFromLimits(accounts[i], value);
+        }
+    }
+
+    /**
+     * @dev Exclude a batch of accounts from tax.
+     *      Only MANAGER_ROLE can call.
+     */
+    function excludeFromTax(
+        address[] calldata accounts,
+        bool value
+    ) external onlyRole(MANAGER_ROLE) {
+        for (uint256 i = 0; i < accounts.length; i++) {
+            _excludeFromTax(accounts[i], value);
         }
     }
 
@@ -402,35 +419,23 @@ contract SilkAIv2 is
             AccountBlockedFromTransfer()
         );
 
-        // Skip limits and fees during swap operations
-        if (inSwapBack) {
-            super._update(from, to, amount);
-            return;
-        }
-
-        // Check if we should swap accumulated tokens
-        uint256 contractTokenBalance = balanceOf(address(this));
-        bool shouldSwap = contractTokenBalance >= swapTokensAtAmount;
-
-        // Perform swap if threshold reached and not buying tokens
-        if (shouldSwap && !automatedMarketMakerPairs[from]) {
-            _swapBack(contractTokenBalance);
-            lastSwapBackExecutionBlock = block.number;
-        }
-
         // Apply transaction & wallet size limits if needed
-        bool isExempt = isExcludedFromLimits[from] || isExcludedFromLimits[to];
-        if (isLimitsEnabled && !isExempt) {
+        bool applyLimits = isLimitsEnabled &&
+            !inSwapBack &&
+            !(isExcludedFromLimits[from] || isExcludedFromLimits[to]);
+        if (applyLimits) {
             // If buying from an AMM pair
-            if (automatedMarketMakerPairs[from]) {
+            if (automatedMarketMakerPairs[from] && !isExcludedFromLimits[to]) {
+                require(amount <= limits.maxBuy, AmountOutOfBounds());
                 require(
-                    amount <= limits.maxBuy &&
-                        amount + balanceOf(to) <= limits.maxWallet,
+                    amount + balanceOf(to) <= limits.maxWallet,
                     AmountOutOfBounds()
                 );
-            } else if (automatedMarketMakerPairs[to]) {
+            } else if (
+                automatedMarketMakerPairs[to] && !isExcludedFromLimits[from]
+            ) {
                 require(amount <= limits.maxSell, AmountOutOfBounds());
-            } else {
+            } else if (!isExcludedFromLimits[to]) {
                 require(
                     amount + balanceOf(to) <= limits.maxWallet,
                     AmountOutOfBounds()
@@ -439,17 +444,38 @@ contract SilkAIv2 is
         }
 
         // Apply tax logic if enabled
-        if (isTaxEnabled && !isExempt) {
-            uint256 tax = automatedMarketMakerPairs[from]
-                ? (amount * fees.buyFee) / DENM
-                : automatedMarketMakerPairs[to]
-                ? (amount * fees.sellFee) / DENM
-                : (amount * fees.transferFee) / DENM;
+        bool applyTax = isTaxEnabled &&
+            !inSwapBack &&
+            !(isExcludedFromTax[from] || isExcludedFromTax[to]);
+        if (applyTax) {
+            uint256 feeAmount = 0;
+            if (automatedMarketMakerPairs[to] && fees.sellFee > 0) {
+                feeAmount = (amount * fees.sellFee) / DENM;
+            } else if (automatedMarketMakerPairs[from] && fees.buyFee > 0) {
+                feeAmount = (amount * fees.buyFee) / DENM;
+            } else if (
+                !automatedMarketMakerPairs[to] &&
+                !automatedMarketMakerPairs[from] &&
+                fees.transferFee > 0
+            ) {
+                feeAmount = (amount * fees.transferFee) / DENM;
+            }
 
-            // If any fee is accrued, subtract it from transfer and add to contract
-            if (tax > 0) {
-                amount -= tax;
-                super._update(from, address(this), tax);
+            if (feeAmount > 0) {
+                amount -= feeAmount;
+                super._update(from, address(this), feeAmount);
+            }
+        }
+
+        // Check if we should swap accumulated tokens
+        uint256 contractTokenBalance = balanceOf(address(this));
+        bool shouldSwap = contractTokenBalance >= swapTokensAtAmount;
+
+        // Perform swap if threshold reached and not buying tokens
+        if (applyTax && shouldSwap && !automatedMarketMakerPairs[from]) {
+            if (block.number > lastSwapBackExecutionBlock + 3) {
+                _swapBack(contractTokenBalance);
+                lastSwapBackExecutionBlock = block.number;
             }
         }
 
@@ -458,6 +484,10 @@ contract SilkAIv2 is
     }
 
     function _swapBack(uint256 balance) internal virtual lockSwapBack {
+        _swapTokensForEth(balance);
+    }
+
+    function _swapTokensForEth(uint256 balance) internal {
         bool success;
         address[] memory path = new address[](2);
         path[0] = address(this);
@@ -469,6 +499,9 @@ contract SilkAIv2 is
             balance = maxSwapAmount;
         }
 
+        // Approve router to spend tokens
+        _approve(address(this), address(uniswapV2Router), balance);
+
         uniswapV2Router.swapExactTokensForETHSupportingFeeOnTransferTokens(
             balance,
             0,
@@ -478,8 +511,22 @@ contract SilkAIv2 is
         );
 
         uint256 ethBalance = address(this).balance;
+        uint256 operationsAmount = ethBalance / 2; // 50% to operations wallet
 
-        (success, ) = address(operationsWallet).call{value: ethBalance}("");
+        (success, ) = address(operationsWallet).call{value: operationsAmount}(
+            ""
+        );
+        // Remaining 50% stays in contract
+    }
+
+    /**
+     * @dev Manually trigger a swap of tokens for ETH
+     *      Only MANAGER_ROLE can call.
+     */
+    function manualSwap() external onlyRole(MANAGER_ROLE) nonReentrant {
+        uint256 contractTokenBalance = balanceOf(address(this));
+        require(contractTokenBalance > 0, "No tokens to swap");
+        _swapTokensForEth(contractTokenBalance);
     }
 
     /**
@@ -489,4 +536,37 @@ contract SilkAIv2 is
         isExcludedFromLimits[account] = value;
         emit ExcludeFromLimits(account, value);
     }
+
+    function _excludeFromTax(address account, bool value) internal virtual {
+        isExcludedFromTax[account] = value;
+        emit ExcludeFromTax(account, value);
+    }
+
+    // Allow contract to receive ETH
+    receive() external payable {}
+
+    fallback() external payable {}
+
+    /**
+     * @dev Pause the contract. Only DEFAULT_ADMIN_ROLE can call.
+     *      Pausing forbids token transfers (via ERC20Pausable).
+     */
+    function pause() public onlyRole(DEFAULT_ADMIN_ROLE) {
+        _pause();
+    }
+
+    /**
+     * @dev Unpause the contract. Only DEFAULT_ADMIN_ROLE can call.
+     */
+    function unpause() public onlyRole(DEFAULT_ADMIN_ROLE) {
+        _unpause();
+    }
+
+    /**
+     * @dev Authorization hook for UUPS upgrades.
+     *      Only addresses with UPGRADER_ROLE can upgrade the contract.
+     */
+    function _authorizeUpgrade(
+        address newImplementation
+    ) internal override onlyRole(UPGRADER_ROLE) {}
 }
