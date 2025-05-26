@@ -8,10 +8,10 @@ import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol"
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 
-import "./interfaces/IUniswapV2Factory.sol";
-import "./interfaces/IUniswapV2Router02.sol";
+import "./interfaces/IAerodomeV2Factory.sol";
+import "./interfaces/IAerodomeV2Router02.sol";
 
-contract BonkAI is
+contract RestAI is
     Initializable,
     AccessControlUpgradeable,
     ERC20Upgradeable,
@@ -20,7 +20,7 @@ contract BonkAI is
     UUPSUpgradeable,
     ReentrancyGuardUpgradeable
 {
-    IUniswapV2Router02 private swapRouter;
+    IAerodomeV2Router02 private swapRouter;
     address private swapPair;
 
     // Roles for AccessControl
@@ -94,9 +94,6 @@ contract BonkAI is
     error AccountBlockedFromTransfer();
     error AmountTooSmall();
     error AmountTooLarge();
-    error ZeroTokenAmount();
-    error ZeroEthAmount();
-    error InsufficientToken();
 
     // Swap and Liquify
     address public operationsWallet;
@@ -124,8 +121,8 @@ contract BonkAI is
         address _operationsWallet
     ) external initializer {
         // Initialize parent contracts
-        __ERC20_init("BONK AI", "BONKAI");
-        __ERC20Permit_init("BONK AI");
+        __ERC20_init("Rest AI", "RestAI");
+        __ERC20Permit_init("Rest AI");
         __AccessControl_init();
         __UUPSUpgradeable_init();
         __ReentrancyGuard_init();
@@ -185,46 +182,24 @@ contract BonkAI is
      * @dev Launch the token and enable transfers.
      *      This can only be done once by MANAGER_ROLE.
      */
-    function launch(
-        uint256 tokenAmount
-    ) external payable onlyRole(MANAGER_ROLE) nonReentrant {
+    function launch() external onlyRole(MANAGER_ROLE) nonReentrant {
         require(!isLaunched, AlreadyLaunched());
-
-        require(tokenAmount > 0, ZeroTokenAmount());
-        require(msg.value > 0, ZeroEthAmount());
-        require(balanceOf(msg.sender) >= tokenAmount, InsufficientToken());
-
-        // Set up router
-        swapRouter = IUniswapV2Router02(
-            0x4752ba5DBc23f44D87826276BF6Fd6b1C372aD24
+        isLaunched = true;
+        swapRouter = IAerodomeV2Router02(
+            0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43
         );
 
-        // Transfer tokens to this contract
-        _transfer(msg.sender, address(this), tokenAmount);
-
-        // Approve router to handle these tokens
         _approve(address(this), address(swapRouter), type(uint256).max);
 
-        // Create pair and add liquidity
-        swapPair = IUniswapV2Factory(swapRouter.factory()).createPair(
+        swapPair = IAerodomeV2Factory(swapRouter.defaultFactory()).createPool(
             address(this),
-            swapRouter.WETH()
+            swapRouter.weth(),
+            false
         );
-
-        swapRouter.addLiquidityETH{value: msg.value}(
-            address(this),
-            tokenAmount,
-            0,
-            0,
-            address(this),
-            block.timestamp
-        );
-
-        // Approve the pair to spend tokens
         IERC20(swapPair).approve(address(swapRouter), type(uint).max);
-
+        // address uniswapFeeCollector = 0x5d64D14D2CF4fe5fe4e65B1c7E3D11e18D493091;
+        // _excludeFromLimits(uniswapFeeCollector, true);
         _setAutomatedMarketMakerPair(swapPair, true);
-        isLaunched = true;
         emit Launch();
     }
 
@@ -523,7 +498,7 @@ contract BonkAI is
         bool success;
         address[] memory path = new address[](2);
         path[0] = address(this);
-        path[1] = swapRouter.WETH();
+        path[1] = swapRouter.weth();
 
         uint256 maxSwapAmount = swapTokensAtAmount * 20;
 

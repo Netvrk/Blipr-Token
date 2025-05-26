@@ -11,7 +11,7 @@ import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol
 import "./interfaces/IAerodomeV2Factory.sol";
 import "./interfaces/IAerodomeV2Router02.sol";
 
-contract SilkAIv3 is
+contract SilkAero is
     Initializable,
     AccessControlUpgradeable,
     ERC20Upgradeable,
