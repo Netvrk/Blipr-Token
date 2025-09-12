@@ -11,6 +11,22 @@ import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol
 import "./interfaces/IUniswapV2Factory.sol";
 import "./interfaces/IUniswapV2Router02.sol";
 
+/**
+ * @title BonkAI Token Contract
+ * @author BonkAI Team
+ * @notice Upgradeable ERC20 token with tax mechanism, anti-bot features, and DEX integration
+ * @dev Implements UUPS proxy pattern for upgradeability with role-based access control
+ *
+ * Key Features:
+ * - Configurable buy/sell/transfer taxes
+ * - Anti-bot protection with transaction and wallet limits
+ * - Automatic liquidity management via Uniswap V2
+ * - Role-based administration (DEFAULT_ADMIN, MANAGER, UPGRADER)
+ * - Emergency pause functionality
+ * - Account blocking capability
+ * - Treasury wallet for LP token custody
+ * - Slippage protection on all swaps
+ */
 contract BonkAI is
     Initializable,
     AccessControlUpgradeable,
@@ -20,19 +36,49 @@ contract BonkAI is
     UUPSUpgradeable,
     ReentrancyGuardUpgradeable
 {
+    // ═══════════════════════════════════════════════════════════════════════════
+    // STATE VARIABLES
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /// @notice Uniswap V2 router for DEX operations
     IUniswapV2Router02 private swapRouter;
+
+    /// @notice Primary liquidity pair address
     address private swapPair;
 
-    // Roles for AccessControl
+    // ═══════════════════════════════════════════════════════════════════════════
+    // ACCESS CONTROL ROLES
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /// @notice Role for operational management (fees, limits, launch)
     bytes32 public constant MANAGER_ROLE = keccak256("MANAGER_ROLE");
+
+    /// @notice Role for contract upgrades
     bytes32 public constant UPGRADER_ROLE = keccak256("UPGRADER_ROLE");
 
-    // Boolean flags for contract state
-    bool public isLimitsEnabled; // Whether buy/sell/wallet limits are enforced
-    bool public isTaxEnabled; // Whether fees (taxes) are applied
-    bool public isLaunched; // Whether the token has been launched
+    // ═══════════════════════════════════════════════════════════════════════════
+    // CONTRACT STATE FLAGS
+    // ═══════════════════════════════════════════════════════════════════════════
 
-    // Limits struct to store maxBuy, maxSell, and maxWallet
+    /// @notice If true, transaction and wallet limits are enforced
+    bool public isLimitsEnabled;
+
+    /// @notice If true, buy/sell/transfer taxes are applied
+    bool public isTaxEnabled;
+
+    /// @notice If true, token has been launched and trading is enabled
+    bool public isLaunched;
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // STRUCTS
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * @notice Transaction and wallet limits configuration
+     * @param maxBuy Maximum tokens allowed per buy transaction
+     * @param maxSell Maximum tokens allowed per sell transaction
+     * @param maxWallet Maximum tokens allowed per wallet
+     */
     struct Limits {
         uint256 maxBuy;
         uint256 maxSell;
@@ -40,7 +86,12 @@ contract BonkAI is
     }
     Limits public limits;
 
-    // Fees struct to store buyFee, sellFee, and transferFee
+    /**
+     * @notice Tax configuration for different transaction types
+     * @param buyFee Tax percentage on buy transactions (in basis points)
+     * @param sellFee Tax percentage on sell transactions (in basis points)
+     * @param transferFee Tax percentage on P2P transfers (in basis points)
+     */
     struct Fees {
         uint256 buyFee;
         uint256 sellFee;
@@ -48,18 +99,33 @@ contract BonkAI is
     }
     Fees public fees;
 
+    /// @notice Minimum token balance to trigger automatic swap to ETH
     uint256 public swapTokensAtAmount;
 
-    // Constants: maximum fee (50%) and denominator (10000 = basis points)
-    uint256 private constant MAX_FEE = 2000; // 20%
+    // ═══════════════════════════════════════════════════════════════════════════
+    // CONSTANTS
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /// @dev Maximum allowed fee percentage (20% = 2000 basis points)
+    uint256 private constant MAX_FEE = 2000;
+
+    /// @dev Denominator for percentage calculations (10000 = 100%)
     uint256 private constant DENM = 10000;
 
-    // Track addresses excluded from fees & limits, and AMM pairs
+    // ═══════════════════════════════════════════════════════════════════════════
+    // MAPPINGS
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /// @notice Addresses exempt from transaction and wallet limits
     mapping(address => bool) public isExcludedFromLimits;
+
+    /// @notice Addresses exempt from paying taxes
     mapping(address => bool) public isExcludedFromTax;
+
+    /// @notice DEX pair addresses for special tax treatment
     mapping(address => bool) public automatedMarketMakerPairs;
 
-    // Addresses blocked from sending and receiving tokens
+    /// @notice Blacklisted addresses unable to transfer tokens
     mapping(address => bool) public isBlocked;
 
     // Events to track significant state changes
@@ -83,6 +149,7 @@ contract BonkAI is
     event WithdrawStuckTokens(address token, uint256 amount);
     event AccountBlocked(address account, bool value);
     event SwapTokenAmountUpdated(uint256 newValue, uint256 oldValue);
+    event TreasuryWalletUpdated(address oldWallet, address newWallet);
 
     // Custom errors for more explicit reverts
     error AlreadyLaunched();
@@ -97,13 +164,28 @@ contract BonkAI is
     error ZeroTokenAmount();
     error ZeroEthAmount();
     error InsufficientToken();
+    error ZeroAddress();
+    error EthTransferFailed();
 
-    // Swap and Liquify
+    // ═══════════════════════════════════════════════════════════════════════════
+    // SWAP & LIQUIDITY MANAGEMENT
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /// @notice Wallet receiving tax proceeds in ETH
     address public operationsWallet;
+
+    /// @notice Wallet receiving LP tokens for secure custody
+    address public treasuryWallet;
+
+    /// @dev Flag preventing recursive swaps
     bool private inSwapBack;
+
+    /// @dev Block number of last swap execution (anti-MEV)
     uint256 private lastSwapBackExecutionBlock;
 
-    // Missing modifier
+    /**
+     * @dev Modifier to prevent reentrancy during swap operations
+     */
     modifier lockSwapBack() {
         inSwapBack = true;
         _;
@@ -117,7 +199,16 @@ contract BonkAI is
     }
 
     /**
-     * @dev Initializes the contract after deployment behind a proxy.
+     * @notice Initializes the BonkAI token contract
+     * @dev Called once during proxy deployment to set up initial state
+     * @param _ownerAddress Address to receive DEFAULT_ADMIN_ROLE and initial token supply
+     * @param _operationsWallet Address to receive tax proceeds in ETH
+     *
+     * Initial Configuration:
+     * - Total Supply: 1 billion tokens (1e9 * 1e18)
+     * - Default Limits: 1% buy, 1% sell, 1% wallet
+     * - Default Fees: 3% buy, 5% sell, 0% transfer
+     * - Swap Threshold: 0.05% of total supply
      */
     function initialize(
         address _ownerAddress,
@@ -133,6 +224,7 @@ contract BonkAI is
         address sender = msg.sender;
         // Set operations wallet
         operationsWallet = _operationsWallet;
+        treasuryWallet = _ownerAddress; // Initially set to owner, can be updated later
 
         // Assign default roles
         _grantRole(DEFAULT_ADMIN_ROLE, _ownerAddress); // Multisig wallet
@@ -182,17 +274,29 @@ contract BonkAI is
     }
 
     /**
-     * @dev Launch the token and enable transfers.
-     *      This can only be done once by MANAGER_ROLE.
+     * @notice Launches the token by creating liquidity pool and enabling trading
+     * @dev Creates Uniswap V2 pair, adds initial liquidity, and marks token as launched
+     * @param tokenAmount Amount of tokens to add to liquidity pool
+     *
+     * Requirements:
+     * - Caller must have MANAGER_ROLE
+     * - Token must not be already launched
+     * - Must send ETH with transaction for liquidity
+     * - Caller must have sufficient token balance
+     *
+     * Effects:
+     * - Creates token/ETH pair on Uniswap V2
+     * - Adds liquidity with 5% slippage protection
+     * - LP tokens sent to treasury wallet
+     * - Marks token as launched and enables trading
      */
     function launch(
         uint256 tokenAmount
     ) external payable onlyRole(MANAGER_ROLE) nonReentrant {
-        require(!isLaunched, AlreadyLaunched());
-
-        require(tokenAmount > 0, ZeroTokenAmount());
-        require(msg.value > 0, ZeroEthAmount());
-        require(balanceOf(msg.sender) >= tokenAmount, InsufficientToken());
+        if (isLaunched) revert AlreadyLaunched();
+        if (tokenAmount == 0) revert ZeroTokenAmount();
+        if (msg.value == 0) revert ZeroEthAmount();
+        if (balanceOf(msg.sender) < tokenAmount) revert InsufficientToken();
 
         // Set up router
         swapRouter = IUniswapV2Router02(
@@ -211,17 +315,21 @@ contract BonkAI is
             swapRouter.WETH()
         );
 
+        // Calculate minimum amounts with 5% slippage tolerance
+        // This protects against sandwich attacks during launch
+        uint256 minTokenAmount = (tokenAmount * 95) / 100;
+        uint256 minEthAmount = (msg.value * 95) / 100;
+
+        // Add initial liquidity to Uniswap V2 pool
+        // LP tokens are sent to treasury for secure custody
         swapRouter.addLiquidityETH{value: msg.value}(
             address(this),
             tokenAmount,
-            0,
-            0,
-            address(this),
+            minTokenAmount, // Accept minimum 95% of tokens
+            minEthAmount, // Accept minimum 95% of ETH
+            treasuryWallet, // LP tokens sent to treasury (not contract!)
             block.timestamp
         );
-
-        // Approve the pair to spend tokens
-        IERC20(swapPair).approve(address(swapRouter), type(uint).max);
 
         _setAutomatedMarketMakerPair(swapPair, true);
         isLaunched = true;
@@ -229,8 +337,12 @@ contract BonkAI is
     }
 
     /**
-     * @dev Enable or disable the buy/sell/wallet limits.
-     *      Only MANAGER_ROLE can call.
+     * @notice Toggles transaction and wallet limits
+     * @dev Used to enable/disable anti-bot protection
+     * @param enabled True to enforce limits, false to remove restrictions
+     *
+     * Requirements:
+     * - Caller must have MANAGER_ROLE
      */
     function setLimitsEnabled(bool enabled) external onlyRole(MANAGER_ROLE) {
         isLimitsEnabled = enabled;
@@ -238,8 +350,12 @@ contract BonkAI is
     }
 
     /**
-     * @dev Enable or disable tax (fee).
-     *      Only MANAGER_ROLE can call.
+     * @notice Toggles tax collection on transactions
+     * @dev Allows temporary suspension of all taxes
+     * @param value True to enable taxes, false to disable
+     *
+     * Requirements:
+     * - Caller must have MANAGER_ROLE
      */
     function setTaxesEnabled(bool value) external onlyRole(MANAGER_ROLE) {
         isTaxEnabled = value;
@@ -247,9 +363,15 @@ contract BonkAI is
     }
 
     /**
-     * @dev Set the fees for buying, selling, and transferring.
-     *      Only MANAGER_ROLE can call.
-     *      Each fee cannot exceed MAX_FEE (currently 50%).
+     * @notice Updates tax percentages for different transaction types
+     * @dev Fees are in basis points (100 = 1%)
+     * @param newBuyFee Tax on buy transactions (max 20%)
+     * @param newSellFee Tax on sell transactions (max 20%)
+     * @param newTransferFee Tax on P2P transfers (max 20%)
+     *
+     * Requirements:
+     * - Caller must have MANAGER_ROLE
+     * - Each fee must not exceed MAX_FEE (2000 basis points = 20%)
      */
     function setFees(
         uint256 newBuyFee,
@@ -257,20 +379,25 @@ contract BonkAI is
         uint256 newTransferFee
     ) external onlyRole(MANAGER_ROLE) {
         // Validate new fees against the maximum
-        require(
-            newBuyFee <= MAX_FEE &&
-                newSellFee <= MAX_FEE &&
-                newTransferFee <= MAX_FEE,
-            FeeTooHigh()
-        );
+        if (
+            newBuyFee > MAX_FEE ||
+            newSellFee > MAX_FEE ||
+            newTransferFee > MAX_FEE
+        ) revert FeeTooHigh();
         fees = Fees(newBuyFee, newSellFee, newTransferFee);
         emit SetFees(newBuyFee, newSellFee, newTransferFee);
     }
 
     /**
-     * @dev Set the transaction and wallet limits.
-     *      maxBuy, maxSell, and maxWallet must be within 0.01% to 5% range of total supply.
-     *      Only MANAGER_ROLE can call.
+     * @notice Updates transaction size and wallet holding limits
+     * @dev Limits must be within 0.01% to 10% of total supply
+     * @param newMaxBuy Maximum tokens per buy transaction
+     * @param newMaxSell Maximum tokens per sell transaction
+     * @param newMaxWallet Maximum tokens per wallet
+     *
+     * Requirements:
+     * - Caller must have MANAGER_ROLE
+     * - Each limit must be between 0.01% and 10% of total supply
      */
     function setLimits(
         uint256 newMaxBuy,
@@ -278,21 +405,18 @@ contract BonkAI is
         uint256 newMaxWallet
     ) external onlyRole(MANAGER_ROLE) {
         uint256 _totalSupply = totalSupply();
-        require(
-            newMaxBuy >= (_totalSupply * 1) / DENM &&
-                newMaxBuy <= (_totalSupply * 1000) / DENM,
-            AmountOutOfBounds()
-        ); // 0.01% to 10%
-        require(
-            newMaxSell >= (_totalSupply * 1) / DENM &&
-                newMaxSell <= (_totalSupply * 1000) / DENM,
-            AmountOutOfBounds()
-        ); // 0.01% to 10%
-        require(
-            newMaxWallet >= (_totalSupply * 1) / DENM &&
-                newMaxWallet <= (_totalSupply * 1000) / DENM,
-            AmountOutOfBounds()
-        ); // 0.01% to 10%
+        if (
+            newMaxBuy < (_totalSupply * 1) / DENM ||
+            newMaxBuy > (_totalSupply * 1000) / DENM
+        ) revert AmountOutOfBounds(); // 0.01% to 10%
+        if (
+            newMaxSell < (_totalSupply * 1) / DENM ||
+            newMaxSell > (_totalSupply * 1000) / DENM
+        ) revert AmountOutOfBounds(); // 0.01% to 10%
+        if (
+            newMaxWallet < (_totalSupply * 1) / DENM ||
+            newMaxWallet > (_totalSupply * 1000) / DENM
+        ) revert AmountOutOfBounds(); // 0.01% to 10%
 
         limits = Limits(newMaxBuy, newMaxSell, newMaxWallet);
         emit SetLimits(newMaxBuy, newMaxSell, newMaxWallet);
@@ -307,15 +431,20 @@ contract BonkAI is
         address pair,
         bool value
     ) internal virtual {
-        require(pair != address(0), "Cannot set zero address");
+        if (pair == address(0)) revert ZeroAddress();
         automatedMarketMakerPairs[pair] = value;
         emit SetAutomatedMarketMakerPair(pair, value);
     }
 
     /**
-     * @dev Set (or unset) an address as an automated market maker pair.
-     *      Typically used for DEX pairs.
-     *      Only MANAGER_ROLE can call.
+     * @notice Marks an address as a DEX pair for special tax treatment
+     * @dev AMM pairs have different tax rules applied
+     * @param pair Address to mark/unmark as AMM pair
+     * @param value True to mark as AMM pair, false to remove
+     *
+     * Requirements:
+     * - Caller must have MANAGER_ROLE
+     * - Pair address cannot be zero address
      */
     function setAutomaticMarketMakerPair(
         address pair,
@@ -331,8 +460,21 @@ contract BonkAI is
     function setOperationsWallet(
         address _wallet
     ) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        require(_wallet != address(0), "Cannot set zero address");
+        if (_wallet == address(0)) revert ZeroAddress();
         operationsWallet = _wallet;
+    }
+
+    /**
+     * @dev Set the treasury wallet address (receives LP tokens)
+     *      Only DEFAULT_ADMIN_ROLE can call.
+     */
+    function setTreasuryWallet(
+        address _wallet
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (_wallet == address(0)) revert ZeroAddress();
+        address oldWallet = treasuryWallet;
+        treasuryWallet = _wallet;
+        emit TreasuryWalletUpdated(oldWallet, _wallet);
     }
 
     /**
@@ -347,10 +489,19 @@ contract BonkAI is
         emit AccountBlocked(account, value);
     }
 
+    /**
+     * @notice Sets the minimum token balance to trigger automatic swaps
+     * @dev Must be between 0.01% and 5% of total supply
+     * @param amount New swap threshold in tokens
+     *
+     * Requirements:
+     * - Caller must have MANAGER_ROLE
+     * - Amount must be within allowed range
+     */
     function setTokensForSwap(uint256 amount) external onlyRole(MANAGER_ROLE) {
         uint256 totalSupplyTokens = totalSupply();
-        require(amount >= (totalSupplyTokens * 1) / DENM, AmountTooSmall()); // 0.01% of total supply
-        require(amount <= (totalSupplyTokens * 500) / DENM, AmountTooLarge()); // 5% of total supply
+        if (amount < (totalSupplyTokens * 1) / DENM) revert AmountTooSmall(); // Min: 0.01%
+        if (amount > (totalSupplyTokens * 500) / DENM) revert AmountTooLarge(); // Max: 5%
         uint256 oldValue = swapTokensAtAmount;
         swapTokensAtAmount = amount;
         emit SwapTokenAmountUpdated(amount, oldValue);
@@ -383,9 +534,17 @@ contract BonkAI is
     }
 
     /**
-     * @dev Withdraw stuck tokens (including ETH if _token == address(0))
-     *      Only DEFAULT_ADMIN_ROLE can call.
-     *      Uses ReentrancyGuard to prevent reentrant calls.
+     * @notice Emergency function to recover stuck tokens or ETH
+     * @dev Allows withdrawal of any tokens accidentally sent to contract
+     * @param _token Token address to withdraw (use address(0) for ETH)
+     *
+     * Requirements:
+     * - Caller must have DEFAULT_ADMIN_ROLE
+     * - Contract must have non-zero balance of requested token
+     *
+     * Security:
+     * - Protected by ReentrancyGuard
+     * - Includes transfer success checks
      */
     function withdrawTokens(
         address _token
@@ -395,31 +554,39 @@ contract BonkAI is
         if (_token == address(0)) {
             // Withdraw ETH
             amount = address(this).balance;
-            require(amount > 0, NoTokens());
+            if (amount == 0) revert NoTokens();
             (bool success, ) = address(msg.sender).call{value: amount}("");
-            require(success, FailedToWithdrawTokens());
+            if (!success) revert FailedToWithdrawTokens();
         } else if (_token == address(this)) {
             // Withdraw this contract's own tokens
             amount = balanceOf(address(this));
-            require(amount > 0, NoTokens());
+            if (amount == 0) revert NoTokens();
             _transfer(address(this), msg.sender, amount);
         } else {
             // Withdraw other ERC20 tokens
             amount = IERC20(_token).balanceOf(address(this));
-            require(amount > 0, NoTokens());
-            IERC20(_token).transfer(msg.sender, amount);
+            if (amount == 0) revert NoTokens();
+            bool success = IERC20(_token).transfer(msg.sender, amount);
+            if (!success) revert FailedToWithdrawTokens();
         }
 
         emit WithdrawStuckTokens(_token, amount);
     }
 
     /**
-     * @dev Internal override of _update (from ERC20Upgradeable):
-     *      - Checks if token is launched unless sender/receiver is excluded
-     *      - Checks if addresses are blocked
-     *      - Enforces transaction limits if enabled
-     *      - Calculates fees if taxes are enabled
-     *      - Swaps tokens to ETH when threshold is reached
+     * @dev Core transfer logic with tax and limit enforcement
+     * @param from Sender address
+     * @param to Recipient address
+     * @param amount Transfer amount
+     *
+     * This function handles:
+     * 1. Launch status verification
+     * 2. Blacklist checking
+     * 3. Transaction limit enforcement
+     * 4. Tax calculation and collection
+     * 5. Automatic swap triggering
+     *
+     * @inheritdoc ERC20Upgradeable
      */
     function _update(
         address from,
@@ -431,55 +598,59 @@ contract BonkAI is
         override(ERC20Upgradeable, ERC20PausableUpgradeable)
         whenNotPaused
     {
-        // Ensure token is launched or sender/receiver is excluded
-        require(
-            isLaunched ||
-                isExcludedFromLimits[from] ||
-                isExcludedFromLimits[to],
-            NotLaunched()
-        );
+        // Step 1: Verify trading is enabled (unless excluded addresses)
+        if (
+            !isLaunched &&
+            !isExcludedFromLimits[from] &&
+            !isExcludedFromLimits[to]
+        ) revert NotLaunched();
 
-        // Check if either the sender or receiver is blocked
-        require(
-            !isBlocked[from] && !isBlocked[to],
-            AccountBlockedFromTransfer()
-        );
+        // Step 2: Enforce blacklist
+        if (isBlocked[from] || isBlocked[to])
+            revert AccountBlockedFromTransfer();
 
-        // Apply transaction & wallet size limits if needed
+        // Step 3: Check if limits should be applied
         bool applyLimits = isLimitsEnabled &&
             !inSwapBack &&
             !(isExcludedFromLimits[from] || isExcludedFromLimits[to]);
+
         if (applyLimits) {
-            // If buying from an AMM pair
+            // Buy transaction: from AMM pair to user
             if (automatedMarketMakerPairs[from] && !isExcludedFromLimits[to]) {
-                require(amount <= limits.maxBuy, AmountOutOfBounds());
-                require(
-                    amount + balanceOf(to) <= limits.maxWallet,
-                    AmountOutOfBounds()
-                );
-            } else if (
+                if (amount > limits.maxBuy) revert AmountOutOfBounds();
+                if (amount + balanceOf(to) > limits.maxWallet)
+                    revert AmountOutOfBounds();
+            }
+            // Sell transaction: from user to AMM pair
+            else if (
                 automatedMarketMakerPairs[to] && !isExcludedFromLimits[from]
             ) {
-                require(amount <= limits.maxSell, AmountOutOfBounds());
-            } else if (!isExcludedFromLimits[to]) {
-                require(
-                    amount + balanceOf(to) <= limits.maxWallet,
-                    AmountOutOfBounds()
-                );
+                if (amount > limits.maxSell) revert AmountOutOfBounds();
+            }
+            // P2P transfer: enforce wallet limit for recipient
+            else if (!isExcludedFromLimits[to]) {
+                if (amount + balanceOf(to) > limits.maxWallet)
+                    revert AmountOutOfBounds();
             }
         }
 
-        // Apply tax logic if enabled
+        // Step 4: Calculate and collect taxes
         bool applyTax = isTaxEnabled &&
             !inSwapBack &&
             !(isExcludedFromTax[from] || isExcludedFromTax[to]);
+
         if (applyTax) {
             uint256 feeAmount = 0;
+            // Sell tax: user selling to AMM
             if (automatedMarketMakerPairs[to] && fees.sellFee > 0) {
                 feeAmount = (amount * fees.sellFee) / DENM;
-            } else if (automatedMarketMakerPairs[from] && fees.buyFee > 0) {
+            }
+            // Buy tax: user buying from AMM
+            else if (automatedMarketMakerPairs[from] && fees.buyFee > 0) {
                 feeAmount = (amount * fees.buyFee) / DENM;
-            } else if (
+            }
+            // Transfer tax: P2P transfers
+            else if (
                 !automatedMarketMakerPairs[to] &&
                 !automatedMarketMakerPairs[from] &&
                 fees.transferFee > 0
@@ -487,46 +658,61 @@ contract BonkAI is
                 feeAmount = (amount * fees.transferFee) / DENM;
             }
 
+            // Collect tax by transferring to contract
             if (feeAmount > 0) {
                 amount -= feeAmount;
                 super._update(from, address(this), feeAmount);
             }
         }
 
-        // Check if we should swap accumulated tokens
+        // Step 5: Check for automatic swap trigger
         uint256 contractTokenBalance = balanceOf(address(this));
         bool shouldSwap = contractTokenBalance >= swapTokensAtAmount;
 
-        // Perform swap if threshold reached and not buying tokens
+        // Swap conditions:
+        // - Tax is enabled
+        // - Threshold reached
+        // - Not a buy transaction (prevents sandwich attacks)
+        // - 3 blocks passed since last swap (MEV protection)
         if (applyTax && shouldSwap && !automatedMarketMakerPairs[from]) {
             if (block.number > lastSwapBackExecutionBlock + 3) {
-                _swapBack(contractTokenBalance);
+                _swapTokensForEth(contractTokenBalance);
                 lastSwapBackExecutionBlock = block.number;
             }
         }
 
-        // Proceed with the normal transfer
+        // Step 6: Execute the actual transfer
         super._update(from, to, amount);
     }
 
+    /**
+     * @notice Manually triggers swap of contract tokens to ETH
+     * @dev Bypasses automatic swap threshold for immediate execution
+     *
+     * Requirements:
+     * - Caller must have MANAGER_ROLE
+     * - Contract must have tokens to swap
+     */
     function manualSwap() external onlyRole(MANAGER_ROLE) nonReentrant {
         uint256 contractTokenBalance = balanceOf(address(this));
-        require(contractTokenBalance > 0, "No tokens to swap");
+        if (contractTokenBalance == 0) revert NoTokens();
         _swapTokensForEth(contractTokenBalance);
     }
 
-    function _swapBack(uint256 balance) internal virtual lockSwapBack {
-        _swapTokensForEth(balance);
-    }
-
-    function _swapTokensForEth(uint256 balance) internal {
+    /**
+     * @dev Executes token to ETH swap with slippage protection
+     * @param balance Amount of tokens to swap
+     */
+    function _swapTokensForEth(uint256 balance) internal lockSwapBack {
         bool success;
+
+        // Define swap path: Token -> WETH -> ETH
         address[] memory path = new address[](2);
         path[0] = address(this);
         path[1] = swapRouter.WETH();
 
+        // Cap maximum swap to prevent massive dumps (20x threshold)
         uint256 maxSwapAmount = swapTokensAtAmount * 20;
-
         if (balance > maxSwapAmount) {
             balance = maxSwapAmount;
         }
@@ -534,40 +720,80 @@ contract BonkAI is
         // Approve router to spend tokens
         _approve(address(this), address(swapRouter), balance);
 
+        // Calculate expected output for slippage protection
+        uint256[] memory amounts = swapRouter.getAmountsOut(balance, path);
+        uint256 expectedEth = amounts[1];
+
+        // Apply 5% slippage tolerance
+        uint256 minEthOut = (expectedEth * 95) / 100;
+
+        // Execute swap with fee-on-transfer support
         swapRouter.swapExactTokensForETHSupportingFeeOnTransferTokens(
             balance,
-            0,
+            minEthOut, // Minimum ETH to receive (95% of expected)
             path,
             address(this),
-            block.timestamp
+            block.timestamp // Current block deadline
         );
 
+        // Transfer all ETH to operations wallet
         uint256 ethBalance = address(this).balance;
         (success, ) = address(operationsWallet).call{value: ethBalance}("");
+        if (!success) revert EthTransferFailed();
     }
 
+    /**
+     * @dev Internal function to exclude/include address from limits
+     * @param account Address to modify
+     * @param value True to exclude, false to include
+     */
     function _excludeFromLimits(address account, bool value) internal virtual {
         isExcludedFromLimits[account] = value;
         emit ExcludeFromLimits(account, value);
     }
 
+    /**
+     * @dev Internal function to exclude/include address from taxes
+     * @param account Address to modify
+     * @param value True to exclude, false to include
+     */
     function _excludeFromTax(address account, bool value) internal virtual {
         isExcludedFromTax[account] = value;
         emit ExcludeFromTax(account, value);
     }
 
+    /// @notice Allows contract to receive ETH directly
     receive() external payable {}
 
-    fallback() external payable {}
-
+    /**
+     * @notice Emergency pause - stops all token transfers
+     * @dev Can be used to prevent exploits or during upgrades
+     *
+     * Requirements:
+     * - Caller must have DEFAULT_ADMIN_ROLE
+     */
     function pause() public onlyRole(DEFAULT_ADMIN_ROLE) {
         _pause();
     }
 
+    /**
+     * @notice Resumes token transfers after pause
+     * @dev Re-enables all transfer functionality
+     *
+     * Requirements:
+     * - Caller must have DEFAULT_ADMIN_ROLE
+     */
     function unpause() public onlyRole(DEFAULT_ADMIN_ROLE) {
         _unpause();
     }
 
+    /**
+     * @dev Authorization function for UUPS upgrades
+     * @param newImplementation Address of new implementation contract
+     *
+     * Requirements:
+     * - Caller must have UPGRADER_ROLE
+     */
     function _authorizeUpgrade(
         address newImplementation
     ) internal override onlyRole(UPGRADER_ROLE) {}
