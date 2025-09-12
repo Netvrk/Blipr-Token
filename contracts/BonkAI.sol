@@ -112,6 +112,9 @@ contract BonkAI is
     /// @dev Denominator for percentage calculations (10000 = 100%)
     uint256 private constant DENM = 10000;
 
+    /// @dev Maximum batch size for array operations to prevent DoS
+    uint256 private constant MAX_BATCH_SIZE = 50;
+
     // ═══════════════════════════════════════════════════════════════════════════
     // MAPPINGS
     // ═══════════════════════════════════════════════════════════════════════════
@@ -510,11 +513,15 @@ contract BonkAI is
     /**
      * @dev Exclude a batch of accounts from limits.
      *      Only MANAGER_ROLE can call.
+     *      Limited to MAX_BATCH_SIZE to prevent DoS attacks.
      */
     function excludeFromLimits(
         address[] calldata accounts,
         bool value
     ) external onlyRole(MANAGER_ROLE) {
+        require(accounts.length > 0, "Empty array");
+        require(accounts.length <= MAX_BATCH_SIZE, "Batch too large");
+        
         for (uint256 i = 0; i < accounts.length; i++) {
             _excludeFromLimits(accounts[i], value);
         }
@@ -523,11 +530,15 @@ contract BonkAI is
     /**
      * @dev Exclude a batch of accounts from tax.
      *      Only MANAGER_ROLE can call.
+     *      Limited to MAX_BATCH_SIZE to prevent DoS attacks.
      */
     function excludeFromTax(
         address[] calldata accounts,
         bool value
     ) external onlyRole(MANAGER_ROLE) {
+        require(accounts.length > 0, "Empty array");
+        require(accounts.length <= MAX_BATCH_SIZE, "Batch too large");
+        
         for (uint256 i = 0; i < accounts.length; i++) {
             _excludeFromTax(accounts[i], value);
         }
