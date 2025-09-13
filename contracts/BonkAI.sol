@@ -80,9 +80,9 @@ contract BonkAI is
      * @param maxWallet Maximum tokens allowed per wallet
      */
     struct Limits {
-        uint256 maxBuy;
-        uint256 maxSell;
-        uint256 maxWallet;
+        uint128 maxBuy;
+        uint128 maxSell;
+        uint128 maxWallet;
     }
     Limits public limits;
 
@@ -93,9 +93,9 @@ contract BonkAI is
      * @param transferFee Tax percentage on P2P transfers (in basis points)
      */
     struct Fees {
-        uint256 buyFee;
-        uint256 sellFee;
-        uint256 transferFee;
+        uint16 buyFee;
+        uint16 sellFee;
+        uint16 transferFee;
     }
     Fees public fees;
 
@@ -240,9 +240,9 @@ contract BonkAI is
         // Set default limits
         // 5% maxbuy, 5% maxsell, 10% maxwallet
         limits = Limits({
-            maxBuy: (_totalSupply * 100) / DENM, // 1% of supply
-            maxSell: (_totalSupply * 100) / DENM, // 1% of supply
-            maxWallet: (_totalSupply * 100) / DENM // 1% of supply
+            maxBuy: uint128((_totalSupply * 100) / DENM), // 1%
+            maxSell: uint128((_totalSupply * 100) / DENM), // 1%
+            maxWallet: uint128((_totalSupply * 100) / DENM) // 1%
         });
 
         // By default, limits and tax are enabled
@@ -251,11 +251,11 @@ contract BonkAI is
 
         swapTokensAtAmount = (_totalSupply * 5) / DENM; // 0.05% of total supply
 
-        // Default fees are set to 1% for buy, sell, and transfer
+        // Default fees
         fees = Fees({
-            buyFee: 300, // 3% buy tax
-            sellFee: 500, // 5% sell tax
-            transferFee: 0 // 0% transfer tax
+            buyFee: 300, // 3%
+            sellFee: 500, // 5%
+            transferFee: 0 // 0%
         });
 
         // Exclude important addresses from limits
@@ -387,7 +387,11 @@ contract BonkAI is
             newSellFee > MAX_FEE ||
             newTransferFee > MAX_FEE
         ) revert FeeTooHigh();
-        fees = Fees(newBuyFee, newSellFee, newTransferFee);
+        fees = Fees({
+            buyFee: uint16(newBuyFee),
+            sellFee: uint16(newSellFee),
+            transferFee: uint16(newTransferFee)
+        });
         emit SetFees(newBuyFee, newSellFee, newTransferFee);
     }
 
@@ -421,7 +425,11 @@ contract BonkAI is
             newMaxWallet > (_totalSupply * 1000) / DENM
         ) revert AmountOutOfBounds(); // 0.01% to 10%
 
-        limits = Limits(newMaxBuy, newMaxSell, newMaxWallet);
+        limits = Limits({
+            maxBuy: uint128(newMaxBuy),
+            maxSell: uint128(newMaxSell),
+            maxWallet: uint128(newMaxWallet)
+        });
         emit SetLimits(newMaxBuy, newMaxSell, newMaxWallet);
     }
 
