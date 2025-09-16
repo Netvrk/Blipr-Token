@@ -16,8 +16,16 @@ const config: HardhatUserConfig = {
     },
   },
   networks: {
+    hardhat: {
+      forking: {
+        url: "https://base.gateway.tenderly.co",
+      },
+      accounts: {
+        mnemonic: "test test test test test test test test test test test junk",
+      },
+    },
     base: {
-      url: "https://developer-access-mainnet.base.org",
+      url: "https://base.gateway.tenderly.co",
       accounts:
         process.env.PRIVATE_KEY_1 !== undefined
           ? [process.env.PRIVATE_KEY_1]
@@ -34,10 +42,10 @@ const config: HardhatUserConfig = {
         chainId: 8453,
         urls: {
           apiURL: "https://api.basescan.org/api",
-          browserURL: "https://basescan.org"
-        }
-      }
-    ]
+          browserURL: "https://basescan.org",
+        },
+      },
+    ],
   },
   sourcify: {
     enabled: false,

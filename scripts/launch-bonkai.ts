@@ -2,10 +2,7 @@ import { ethers } from "hardhat";
 
 async function main() {
   // Contract address on Base network
-  const BONKAI_ADDRESS = "0xf84d967498F4e96c5C1a7B9CC9eFC538d60CF224";
-
-  // Address that should have tokens
-  const TOKEN_HOLDER = "0xc05a8e3cD35bE7C1ef19E1B324baa9Ad838110d9";
+  const BONKAI_ADDRESS = "0x619C6643CdB2642D27163baF74dc61143CA09f57";
 
   // Get signer
   const [signer] = await ethers.getSigners();
@@ -19,12 +16,12 @@ async function main() {
   console.log("Token balance:", ethers.formatEther(balance));
 
   // Amount of tokens to add to liquidity (adjust as needed)
-  // For example: 500,000,000 tokens (50% of supply)
-  const tokenAmount = ethers.parseEther("500000000");
+  // For example: 500,000,000 tokens (10% of supply)
+  const tokenAmount = ethers.parseEther("100000000");
 
   // Amount of ETH to add to liquidity (adjust as needed)
-  // For example: 1 ETH
-  const ethAmount = ethers.parseEther("1");
+  // For example: 0.1 ETH for testing
+  const ethAmount = ethers.parseEther("0.02");
 
   // Check if already launched
   const isLaunched = await BonkAI.isLaunched();
@@ -45,7 +42,11 @@ async function main() {
 
   // Check token balance
   if (balance < tokenAmount) {
-    console.error(`Error: Insufficient token balance. Need ${ethers.formatEther(tokenAmount)} but have ${ethers.formatEther(balance)}`);
+    console.error(
+      `Error: Insufficient token balance. Need ${ethers.formatEther(
+        tokenAmount
+      )} but have ${ethers.formatEther(balance)}`
+    );
     return;
   }
 
@@ -53,7 +54,11 @@ async function main() {
   const ethBalance = await ethers.provider.getBalance(signer.address);
   const totalEthNeeded = ethAmount + ethers.parseEther("0.01"); // Extra for gas
   if (ethBalance < totalEthNeeded) {
-    console.error(`Error: Insufficient ETH balance. Need ${ethers.formatEther(totalEthNeeded)} but have ${ethers.formatEther(ethBalance)}`);
+    console.error(
+      `Error: Insufficient ETH balance. Need ${ethers.formatEther(
+        totalEthNeeded
+      )} but have ${ethers.formatEther(ethBalance)}`
+    );
     return;
   }
 
@@ -62,55 +67,28 @@ async function main() {
   console.log("ETH amount:", ethers.formatEther(ethAmount), "ETH");
   console.log("========================\n");
 
-  console.log("Launching BonkAI token...");
-
+  // Simulate the transaction only
+  console.log("Simulating launch transaction...");
   try {
-    // Call launch function
-    const tx = await BonkAI.launch(tokenAmount, {
+    await BonkAI.launch.staticCall(tokenAmount, {
       value: ethAmount,
-      gasLimit: 500000, // Set explicit gas limit
+      from: signer.address,
     });
-
-    console.log("Transaction sent:", tx.hash);
-    console.log("Waiting for confirmation...");
-
-    const receipt = await tx.wait();
-    console.log("Transaction confirmed in block:", receipt.blockNumber);
-
-    // Get pair address from events
-    const launchEvent = receipt.logs.find((log: any) => {
-      try {
-        const parsed = BonkAI.interface.parseLog(log);
-        return parsed?.name === "Launch";
-      } catch {
-        return false;
-      }
-    });
-
-    if (launchEvent) {
-      console.log("\n✅ Token launched successfully!");
-
-      // Get pair address
-      const swapPair = await BonkAI.swapPair();
-      console.log("Liquidity pair address:", swapPair);
-      console.log("View on Basescan: https://basescan.org/address/" + swapPair);
-    }
-
+    console.log(
+      "\n✅ Simulation successful! The launch transaction will succeed."
+    );
   } catch (error: any) {
-    console.error("\n❌ Launch failed!");
-    if (error.reason) {
-      console.error("Reason:", error.reason);
-    }
+    console.error("\n❌ Simulation failed!");
+    console.error("Reason:", error.reason || error.message);
+
     if (error.data) {
-      // Try to decode the error
       try {
         const decodedError = BonkAI.interface.parseError(error.data);
-        console.error("Error:", decodedError);
+        console.error("Decoded error:", decodedError);
       } catch {
         console.error("Raw error data:", error.data);
       }
     }
-    console.error("Full error:", error);
   }
 }
 

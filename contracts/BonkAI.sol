@@ -10,6 +10,7 @@ import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol
 
 import "./interfaces/IUniswapV2Factory.sol";
 import "./interfaces/IUniswapV2Router02.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /**
  * @title BonkAI Token Contract
@@ -44,7 +45,7 @@ contract BonkAI is
     IUniswapV2Router02 private swapRouter;
 
     /// @notice Primary liquidity pair address
-    address private swapPair;
+    address public swapPair;
 
     // ═══════════════════════════════════════════════════════════════════════════
     // ACCESS CONTROL ROLES
@@ -220,9 +221,7 @@ contract BonkAI is
      * - Default Fees: 3% buy, 5% sell, 0% transfer
      * - Swap Threshold: 0.05% of total supply
      */
-    function initialize(
-        address _treasuryWallet
-    ) external initializer {
+    function initialize(address _treasuryWallet) external initializer {
         // Initialize parent contracts
         __ERC20_init("BONK AI", "BONKAI");
         __ERC20Permit_init("BONK AI");
@@ -298,29 +297,43 @@ contract BonkAI is
      */
     function launch(
         uint256 tokenAmount
-    ) external payable onlyRole(MANAGER_ROLE) nonReentrant {
-        if (isLaunched) revert AlreadyLaunched();
-        if (tokenAmount == 0) revert ZeroTokenAmount();
-        if (msg.value == 0) revert ZeroEthAmount();
-        if (balanceOf(msg.sender) < tokenAmount)
-            revert InsufficientTokenBalance(tokenAmount, balanceOf(msg.sender));
+    ) external payable onlyRole(MANAGER_ROLE) {
+        require(!isLaunched, "Already launched");
+        require(tokenAmount > 0, "Zero token amount");
+        require(msg.value > 0, "Zero ETH amount");
+        require(
+            balanceOf(msg.sender) >= tokenAmount,
+            "Insufficient token balance"
+        );
 
-        // Set up router
+        // Set up router (Base mainnet Uniswap V2 Router)
         swapRouter = IUniswapV2Router02(
             0x4752ba5DBc23f44D87826276BF6Fd6b1C372aD24
         );
 
-        // Transfer tokens to this contract
+        // Transfer tokens to this contract first
         _transfer(msg.sender, address(this), tokenAmount);
 
-        // Approve router to handle these tokens
-        _approve(address(this), address(swapRouter), type(uint256).max);
+        // Get or create pair
+        IUniswapV2Factory factory = IUniswapV2Factory(swapRouter.factory());
+        swapPair = factory.getPair(address(this), swapRouter.WETH());
 
-        // Create pair and add liquidity
-        swapPair = IUniswapV2Factory(swapRouter.factory()).createPair(
-            address(this),
-            swapRouter.WETH()
-        );
+        if (swapPair == address(0)) {
+            // Create pair if it doesn't exist
+            swapPair = factory.createPair(address(this), swapRouter.WETH());
+        }
+
+        // Approve router to spend this contract's tokens
+        _approve(address(this), address(swapRouter), tokenAmount);
+
+        // Set pair BEFORE adding liquidity
+        _setAutomatedMarketMakerPair(swapPair, true);
+
+        // Mark as launched BEFORE adding liquidity to allow transfers
+        isLaunched = true;
+
+        // Set inSwapBack to prevent swap during liquidity add
+        inSwapBack = true;
 
         // Add initial liquidity to Uniswap V2 pool
         // LP tokens are sent to treasury for secure custody
@@ -333,8 +346,8 @@ contract BonkAI is
             block.timestamp
         );
 
-        _setAutomatedMarketMakerPair(swapPair, true);
-        isLaunched = true;
+        // Reset swap flag
+        inSwapBack = false;
         emit Launch();
     }
 
@@ -653,104 +666,91 @@ contract BonkAI is
         virtual
         override(ERC20Upgradeable, ERC20PausableUpgradeable)
         whenNotPaused
-        nonReentrant
     {
-        // Pre-compute frequently used flags to reduce storage reads
-        bool isFromPair = automatedMarketMakerPairs[from];
-        bool isToPair = automatedMarketMakerPairs[to];
-        bool fromExcludedLimits = isExcludedFromLimits[from];
-        bool toExcludedLimits = isExcludedFromLimits[to];
-
-        // Early exit checks
-        if (!isLaunched && !fromExcludedLimits && !toExcludedLimits)
-            revert NotLaunched();
-
-        if (isBlocked[from] || isBlocked[to])
-            revert AccountIsBlocked(isBlocked[from] ? from : to);
-
-        // Optimized limit checks - single storage read for inSwapBack
+        // Step 1: Verify trading is enabled (unless excluded addresses)
         if (
-            isLimitsEnabled &&
+            !isLaunched &&
+            !isExcludedFromLimits[from] &&
+            !isExcludedFromLimits[to]
+        ) revert NotLaunched();
+
+        // Step 2: Enforce blacklist
+        if (isBlocked[from]) revert AccountIsBlocked(from);
+        if (isBlocked[to]) revert AccountIsBlocked(to);
+
+        // Step 3: Check if limits should be applied
+        bool applyLimits = isLimitsEnabled &&
             !inSwapBack &&
-            !(fromExcludedLimits || toExcludedLimits)
-        ) {
-            uint256 toBalance = balanceOf(to);
+            !(isExcludedFromLimits[from] || isExcludedFromLimits[to]);
 
-            if (isFromPair && !toExcludedLimits) {
-                // Buy transaction
-                if (amount > limits.maxBuy)
-                    revert BuyAmountExceedsLimit(amount, limits.maxBuy);
-                if (amount + toBalance > limits.maxWallet)
-                    revert WalletAmountExceedsLimit(
-                        amount + toBalance,
-                        limits.maxWallet
-                    );
-            } else if (isToPair && !fromExcludedLimits) {
-                // Sell transaction
-                if (amount > limits.maxSell)
-                    revert SellAmountExceedsLimit(amount, limits.maxSell);
-            } else if (!toExcludedLimits) {
-                // P2P transfer
-                if (amount + toBalance > limits.maxWallet)
-                    revert WalletAmountExceedsLimit(
-                        amount + toBalance,
-                        limits.maxWallet
-                    );
+        if (applyLimits) {
+            // Buy transaction: from AMM pair to user
+            if (automatedMarketMakerPairs[from] && !isExcludedFromLimits[to]) {
+                if (amount > limits.maxBuy) revert BuyAmountExceedsLimit(amount, limits.maxBuy);
+                if (amount + balanceOf(to) > limits.maxWallet)
+                    revert WalletAmountExceedsLimit(amount + balanceOf(to), limits.maxWallet);
             }
-        }
-
-        // Pre-calculate tax amount if applicable
-        uint256 feeAmount = 0;
-        if (
-            isTaxEnabled &&
-            !inSwapBack &&
-            !(isExcludedFromTax[from] || isExcludedFromTax[to])
-        ) {
-            // Determine fee based on transaction type
-            uint16 applicableFee;
-            if (isToPair) {
-                applicableFee = fees.sellFee;
-            } else if (isFromPair) {
-                applicableFee = fees.buyFee;
-            } else {
-                applicableFee = fees.transferFee;
-            }
-
-            if (applicableFee > 0) {
-                feeAmount = (amount * applicableFee) / DENM;
-            }
-        }
-
-        // Apply fee if calculated
-        if (feeAmount > 0) {
-            amount -= feeAmount;
-            super._update(from, address(this), feeAmount);
-        }
-
-        // Check for swap conditions with dynamic MEV protection
-        if (isTaxEnabled && !isFromPair && !inSwapBack) {
-            uint256 contractBalance = balanceOf(address(this));
-
-            // Dynamic delay: 3-10 blocks based on counter for unpredictability
-            uint256 dynamicDelay = 3 + (swapCounter % 8);
-
-            // Dynamic threshold: ±30% variance for unpredictability
-            uint256 variance = (swapTokensAtAmount * 30) / 100;
-            uint256 threshold = swapTokensAtAmount +
-                ((swapCounter % 3) == 0 ? variance : 0) -
-                ((swapCounter % 5) == 0 ? variance : 0);
-
-            if (
-                contractBalance >= threshold &&
-                block.number > lastSwapBackExecutionBlock + dynamicDelay
+            // Sell transaction: from user to AMM pair
+            else if (
+                automatedMarketMakerPairs[to] && !isExcludedFromLimits[from]
             ) {
-                _swapTokensForEth(contractBalance);
-                lastSwapBackExecutionBlock = block.number;
-                swapCounter++; // Increment for next calculation
+                if (amount > limits.maxSell) revert SellAmountExceedsLimit(amount, limits.maxSell);
+            }
+            // P2P transfer: enforce wallet limit for recipient
+            else if (!isExcludedFromLimits[to]) {
+                if (amount + balanceOf(to) > limits.maxWallet)
+                    revert WalletAmountExceedsLimit(amount + balanceOf(to), limits.maxWallet);
             }
         }
 
-        // Execute the final transfer with adjusted amount
+        // Step 4: Calculate and collect taxes
+        bool applyTax = isTaxEnabled &&
+            !inSwapBack &&
+            !(isExcludedFromTax[from] || isExcludedFromTax[to]);
+
+        if (applyTax) {
+            uint256 feeAmount = 0;
+            // Sell tax: user selling to AMM
+            if (automatedMarketMakerPairs[to] && fees.sellFee > 0) {
+                feeAmount = (amount * fees.sellFee) / DENM;
+            }
+            // Buy tax: user buying from AMM
+            else if (automatedMarketMakerPairs[from] && fees.buyFee > 0) {
+                feeAmount = (amount * fees.buyFee) / DENM;
+            }
+            // Transfer tax: P2P transfers
+            else if (
+                !automatedMarketMakerPairs[to] &&
+                !automatedMarketMakerPairs[from] &&
+                fees.transferFee > 0
+            ) {
+                feeAmount = (amount * fees.transferFee) / DENM;
+            }
+
+            // Collect tax by transferring to contract
+            if (feeAmount > 0) {
+                amount -= feeAmount;
+                super._update(from, address(this), feeAmount);
+            }
+        }
+
+        // Step 5: Check for automatic swap trigger
+        uint256 contractTokenBalance = balanceOf(address(this));
+        bool shouldSwap = contractTokenBalance >= swapTokensAtAmount;
+
+        // Swap conditions:
+        // - Tax is enabled
+        // - Threshold reached
+        // - Not a buy transaction (prevents sandwich attacks)
+        // - 3 blocks passed since last swap (MEV protection)
+        if (applyTax && shouldSwap && !automatedMarketMakerPairs[from]) {
+            if (block.number > lastSwapBackExecutionBlock + 3) {
+                _swapTokensForEth(contractTokenBalance);
+                lastSwapBackExecutionBlock = block.number;
+            }
+        }
+
+        // Step 6: Execute the actual transfer
         super._update(from, to, amount);
     }
 
