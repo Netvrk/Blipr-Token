@@ -8,8 +8,9 @@ import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol"
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 
-import "./interfaces/IAerodomeV2Factory.sol";
-import "./interfaces/IAerodomeV2Router02.sol";
+import "./interfaces/IUniswapV2Factory.sol";
+import "./interfaces/IUniswapV2Router02.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 contract RestAI is
     Initializable,
@@ -20,7 +21,7 @@ contract RestAI is
     UUPSUpgradeable,
     ReentrancyGuardUpgradeable
 {
-    IAerodomeV2Router02 private swapRouter;
+    IUniswapV2Router02 private swapRouter;
     address private swapPair;
 
     // Roles for AccessControl
@@ -182,24 +183,49 @@ contract RestAI is
      * @dev Launch the token and enable transfers.
      *      This can only be done once by MANAGER_ROLE.
      */
-    function launch() external onlyRole(MANAGER_ROLE) nonReentrant {
+    function launch(
+        uint256 tokenAmount
+    ) external payable onlyRole(MANAGER_ROLE) nonReentrant {
         require(!isLaunched, AlreadyLaunched());
-        isLaunched = true;
-        swapRouter = IAerodomeV2Router02(
-            0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43
+        require(tokenAmount > 0, "Zero token amount");
+        require(msg.value > 0, "Zero ETH amount");
+        require(
+            balanceOf(msg.sender) >= tokenAmount,
+            "Insufficient token balance"
         );
 
+        // Set up router (Base mainnet Uniswap V2 Router)
+        swapRouter = IUniswapV2Router02(
+            0x4752ba5DBc23f44D87826276BF6Fd6b1C372aD24
+        );
+
+        // Transfer tokens to this contract for liquidity
+        _transfer(msg.sender, address(this), tokenAmount);
+
+        // Approve router to spend tokens
         _approve(address(this), address(swapRouter), type(uint256).max);
 
-        swapPair = IAerodomeV2Factory(swapRouter.defaultFactory()).createPool(
+        // Create pair if it doesn't exist
+        swapPair = IUniswapV2Factory(swapRouter.factory()).createPair(
             address(this),
-            swapRouter.weth(),
-            false
+            swapRouter.WETH()
         );
+
+        // Add liquidity
+        swapRouter.addLiquidityETH{value: msg.value}(
+            address(this),
+            tokenAmount,
+            0,
+            0,
+            address(this), // LP tokens go to contract
+            block.timestamp
+        );
+
+        // Approve the pair
         IERC20(swapPair).approve(address(swapRouter), type(uint).max);
-        // address uniswapFeeCollector = 0x5d64D14D2CF4fe5fe4e65B1c7E3D11e18D493091;
-        // _excludeFromLimits(uniswapFeeCollector, true);
+
         _setAutomatedMarketMakerPair(swapPair, true);
+        isLaunched = true;
         emit Launch();
     }
 
@@ -498,7 +524,7 @@ contract RestAI is
         bool success;
         address[] memory path = new address[](2);
         path[0] = address(this);
-        path[1] = swapRouter.weth();
+        path[1] = swapRouter.WETH();
 
         uint256 maxSwapAmount = swapTokensAtAmount * 20;
 
