@@ -238,7 +238,7 @@ contract BonkAI is
         uint256 _totalSupply = 1_000_000_000 ether;
 
         // Set default limits
-        // 5% maxbuy, 5% maxsell, 10% maxwallet
+        // 1% maxbuy, 1% maxsell, 1% maxwallet
         limits = Limits({
             maxBuy: uint128((_totalSupply * 100) / DENM), // 1%
             maxSell: uint128((_totalSupply * 100) / DENM), // 1%
@@ -519,6 +519,22 @@ contract BonkAI is
     }
 
     /**
+     * @notice Updates the router address
+     * @dev Can only be called pre-launch by DEFAULT_ADMIN_ROLE
+     * @param _router New router address
+     *
+     * Requirements:
+     * - Must be called before launch
+     * - Router address cannot be zero
+     * - Caller must have DEFAULT_ADMIN_ROLE
+     */
+    function setRouter(address _router) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (isLaunched) revert AlreadyLaunched(); // keep it pre-launch only (recommended)
+        if (_router == address(0)) revert ZeroAddress();
+        swapRouter = IUniswapV2Router02(_router);
+    }
+
+    /**
      * @dev Exclude a batch of accounts from limits.
      *      Only MANAGER_ROLE can call.
      *      Limited to MAX_BATCH_SIZE to prevent DoS attacks.
@@ -529,7 +545,7 @@ contract BonkAI is
     ) external onlyRole(MANAGER_ROLE) {
         require(accounts.length > 0, "Empty array");
         require(accounts.length <= MAX_BATCH_SIZE, "Batch too large");
-        
+
         for (uint256 i = 0; i < accounts.length; i++) {
             _excludeFromLimits(accounts[i], value);
         }
@@ -546,7 +562,7 @@ contract BonkAI is
     ) external onlyRole(MANAGER_ROLE) {
         require(accounts.length > 0, "Empty array");
         require(accounts.length <= MAX_BATCH_SIZE, "Batch too large");
-        
+
         for (uint256 i = 0; i < accounts.length; i++) {
             _excludeFromTax(accounts[i], value);
         }
@@ -713,6 +729,7 @@ contract BonkAI is
      * - Contract must have tokens to swap
      */
     function manualSwap() external onlyRole(MANAGER_ROLE) nonReentrant {
+        if (!isLaunched) revert NotLaunched();
         uint256 contractTokenBalance = balanceOf(address(this));
         if (contractTokenBalance == 0) revert NoTokens();
         _swapTokensForEth(contractTokenBalance);
@@ -739,17 +756,10 @@ contract BonkAI is
         // Approve router to spend tokens
         _approve(address(this), address(swapRouter), balance);
 
-        // Calculate expected output for slippage protection
-        uint256[] memory amounts = swapRouter.getAmountsOut(balance, path);
-        uint256 expectedEth = amounts[1];
-
-        // Apply 5% slippage tolerance
-        uint256 minEthOut = (expectedEth * 95) / 100;
-
         // Execute swap with fee-on-transfer support
         swapRouter.swapExactTokensForETHSupportingFeeOnTransferTokens(
             balance,
-            minEthOut, // Minimum ETH to receive (95% of expected)
+            0, // No minimum ETH requirement
             path,
             address(this),
             block.timestamp // Current block deadline
