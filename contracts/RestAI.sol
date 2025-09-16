@@ -33,19 +33,19 @@ contract RestAI is
     bool public isTaxEnabled; // Whether fees (taxes) are applied
     bool public isLaunched; // Whether the token has been launched
 
-    // Limits struct to store maxBuy, maxSell, and maxWallet
+    // Limits struct optimized with uint128 to pack into 2 storage slots instead of 3
     struct Limits {
-        uint256 maxBuy;
-        uint256 maxSell;
-        uint256 maxWallet;
+        uint128 maxBuy;
+        uint128 maxSell;
+        uint128 maxWallet;
     }
     Limits public limits;
 
-    // Fees struct to store buyFee, sellFee, and transferFee
+    // Fees struct optimized with uint16 to pack into 1 storage slot instead of 3
     struct Fees {
-        uint256 buyFee;
-        uint256 sellFee;
-        uint256 transferFee;
+        uint16 buyFee;
+        uint16 sellFee;
+        uint16 transferFee;
     }
     Fees public fees;
 
@@ -85,9 +85,13 @@ contract RestAI is
     event AccountBlocked(address account, bool value);
     event SwapTokenAmountUpdated(uint256 newValue, uint256 oldValue);
 
-    // Custom errors for more explicit reverts
+    // Enhanced custom errors with parameters for better debugging
     error AlreadyLaunched();
-    error AmountOutOfBounds();
+    error BuyAmountExceedsLimit(uint256 amount, uint256 maxBuy);
+    error SellAmountExceedsLimit(uint256 amount, uint256 maxSell);
+    error WalletAmountExceedsLimit(uint256 newBalance, uint256 maxWallet);
+    error LimitOutOfRange(uint256 provided, uint256 min, uint256 max);
+    error SwapThresholdOutOfRange(uint256 provided, uint256 min, uint256 max);
     error FeeTooHigh();
     error NoTokens();
     error FailedToWithdrawTokens();
@@ -95,6 +99,8 @@ contract RestAI is
     error AccountBlockedFromTransfer();
     error AmountTooSmall();
     error AmountTooLarge();
+    error EmptyArray();
+    error BatchSizeExceeded(uint256 provided, uint256 maximum);
 
     // Swap and Liquify
     address public operationsWallet;
@@ -140,12 +146,12 @@ contract RestAI is
         // Define total supply: 1 billion tokens, 18 decimals => 1_000_000_000 ether
         uint256 _totalSupply = 1_000_000_000 ether;
 
-        // Set default limits
-        // 5% maxbuy, 5% maxsell, 10% maxwallet
+        // Set default limits (cast to uint128 for gas optimization)
+        // 1% maxbuy, 1% maxsell, 1% maxwallet
         limits = Limits({
-            maxBuy: (_totalSupply * 100) / DENM, // 1% of supply
-            maxSell: (_totalSupply * 100) / DENM, // 1% of supply
-            maxWallet: (_totalSupply * 100) / DENM // 1% of supply
+            maxBuy: uint128((_totalSupply * 100) / DENM), // 1% of supply
+            maxSell: uint128((_totalSupply * 100) / DENM), // 1% of supply
+            maxWallet: uint128((_totalSupply * 100) / DENM) // 1% of supply
         });
 
         // By default, limits and tax are enabled
@@ -154,11 +160,11 @@ contract RestAI is
 
         swapTokensAtAmount = (_totalSupply * 5) / DENM; // 0.05% of total supply
 
-        // Default fees are set to 1% for buy, sell, and transfer
+        // Default fees are set (cast to uint16 for gas optimization)
         fees = Fees({
-            buyFee: 300, // 3% buy tax
-            sellFee: 500, // 5% sell tax
-            transferFee: 0 // 0% transfer tax
+            buyFee: uint16(300), // 3% buy tax
+            sellFee: uint16(500), // 5% sell tax
+            transferFee: uint16(0) // 0% transfer tax
         });
 
         // Exclude important addresses from limits
@@ -264,7 +270,7 @@ contract RestAI is
                 newTransferFee <= MAX_FEE,
             FeeTooHigh()
         );
-        fees = Fees(newBuyFee, newSellFee, newTransferFee);
+        fees = Fees(uint16(newBuyFee), uint16(newSellFee), uint16(newTransferFee));
         emit SetFees(newBuyFee, newSellFee, newTransferFee);
     }
 
@@ -279,23 +285,23 @@ contract RestAI is
         uint256 newMaxWallet
     ) external onlyRole(MANAGER_ROLE) {
         uint256 _totalSupply = totalSupply();
-        require(
-            newMaxBuy >= (_totalSupply * 1) / DENM &&
-                newMaxBuy <= (_totalSupply * 1000) / DENM,
-            AmountOutOfBounds()
-        ); // 0.01% to 10%
-        require(
-            newMaxSell >= (_totalSupply * 1) / DENM &&
-                newMaxSell <= (_totalSupply * 1000) / DENM,
-            AmountOutOfBounds()
-        ); // 0.01% to 10%
-        require(
-            newMaxWallet >= (_totalSupply * 1) / DENM &&
-                newMaxWallet <= (_totalSupply * 1000) / DENM,
-            AmountOutOfBounds()
-        ); // 0.01% to 10%
+        uint256 minLimit = (_totalSupply * 1) / DENM; // 0.01%
+        uint256 maxLimit = (_totalSupply * 1000) / DENM; // 10%
 
-        limits = Limits(newMaxBuy, newMaxSell, newMaxWallet);
+        require(
+            newMaxBuy >= minLimit && newMaxBuy <= maxLimit,
+            LimitOutOfRange(newMaxBuy, minLimit, maxLimit)
+        );
+        require(
+            newMaxSell >= minLimit && newMaxSell <= maxLimit,
+            LimitOutOfRange(newMaxSell, minLimit, maxLimit)
+        );
+        require(
+            newMaxWallet >= minLimit && newMaxWallet <= maxLimit,
+            LimitOutOfRange(newMaxWallet, minLimit, maxLimit)
+        );
+
+        limits = Limits(uint128(newMaxBuy), uint128(newMaxSell), uint128(newMaxWallet));
         emit SetLimits(newMaxBuy, newMaxSell, newMaxWallet);
     }
 
@@ -350,8 +356,13 @@ contract RestAI is
 
     function setTokensForSwap(uint256 amount) external onlyRole(MANAGER_ROLE) {
         uint256 totalSupplyTokens = totalSupply();
-        require(amount >= (totalSupplyTokens * 1) / DENM, AmountTooSmall()); // 0.01% of total supply
-        require(amount <= (totalSupplyTokens * 500) / DENM, AmountTooLarge()); // 5% of total supply
+        uint256 minSwap = (totalSupplyTokens * 1) / DENM; // 0.01%
+        uint256 maxSwap = (totalSupplyTokens * 500) / DENM; // 5%
+
+        require(
+            amount >= minSwap && amount <= maxSwap,
+            SwapThresholdOutOfRange(amount, minSwap, maxSwap)
+        );
         uint256 oldValue = swapTokensAtAmount;
         swapTokensAtAmount = amount;
         emit SwapTokenAmountUpdated(amount, oldValue);
@@ -365,6 +376,8 @@ contract RestAI is
         address[] calldata accounts,
         bool value
     ) external onlyRole(MANAGER_ROLE) {
+        require(accounts.length > 0, EmptyArray());
+        require(accounts.length <= 100, BatchSizeExceeded(accounts.length, 100));
         for (uint256 i = 0; i < accounts.length; i++) {
             _excludeFromLimits(accounts[i], value);
         }
@@ -378,6 +391,8 @@ contract RestAI is
         address[] calldata accounts,
         bool value
     ) external onlyRole(MANAGER_ROLE) {
+        require(accounts.length > 0, EmptyArray());
+        require(accounts.length <= 100, BatchSizeExceeded(accounts.length, 100));
         for (uint256 i = 0; i < accounts.length; i++) {
             _excludeFromTax(accounts[i], value);
         }
@@ -453,19 +468,27 @@ contract RestAI is
         if (applyLimits) {
             // If buying from an AMM pair
             if (automatedMarketMakerPairs[from] && !isExcludedFromLimits[to]) {
-                require(amount <= limits.maxBuy, AmountOutOfBounds());
                 require(
-                    amount + balanceOf(to) <= limits.maxWallet,
-                    AmountOutOfBounds()
+                    amount <= limits.maxBuy,
+                    BuyAmountExceedsLimit(amount, limits.maxBuy)
+                );
+                uint256 newBalance = amount + balanceOf(to);
+                require(
+                    newBalance <= limits.maxWallet,
+                    WalletAmountExceedsLimit(newBalance, limits.maxWallet)
                 );
             } else if (
                 automatedMarketMakerPairs[to] && !isExcludedFromLimits[from]
             ) {
-                require(amount <= limits.maxSell, AmountOutOfBounds());
-            } else if (!isExcludedFromLimits[to]) {
                 require(
-                    amount + balanceOf(to) <= limits.maxWallet,
-                    AmountOutOfBounds()
+                    amount <= limits.maxSell,
+                    SellAmountExceedsLimit(amount, limits.maxSell)
+                );
+            } else if (!isExcludedFromLimits[to]) {
+                uint256 newBalance = amount + balanceOf(to);
+                require(
+                    newBalance <= limits.maxWallet,
+                    WalletAmountExceedsLimit(newBalance, limits.maxWallet)
                 );
             }
         }

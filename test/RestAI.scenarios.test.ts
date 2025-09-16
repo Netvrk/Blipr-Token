@@ -150,11 +150,23 @@ describe("RestAI Comprehensive Scenario Tests", function () {
     });
   });
 
+  /**
+   * SCENARIO 3: Trading Limits Enforcement
+   *
+   * Tests the max transaction and wallet limits:
+   * - Max buy limit on DEX purchases
+   * - Max sell limit on DEX sales
+   * - Max wallet limit for holdings
+   * - Exclusion mechanism for special addresses
+   * - Boundary validation for limit values
+   */
   describe("SCENARIO 3: Trading Limits Enforcement", function () {
     beforeEach(async function () {
       await restAI.launch(LAUNCH_TOKENS, { value: LAUNCH_ETH });
     });
 
+    // Test: Verify max buy limit prevents large purchases from DEX
+    // Protects against whale accumulation and price manipulation
     it("Should enforce max buy limit on Uniswap purchases", async function () {
       // Set low max buy limit
       const maxBuy = TOTAL_SUPPLY / 1000n; // 0.1%
@@ -174,6 +186,8 @@ describe("RestAI Comprehensive Scenario Tests", function () {
       ).to.be.reverted;
     });
 
+    // Test: Confirm max sell limit prevents large dumps
+    // Protects price stability and prevents panic selling
     it("Should enforce max sell limit on Uniswap sales", async function () {
       // Disable limits first to buy tokens
       await restAI.setLimitsEnabled(false);
@@ -211,6 +225,9 @@ describe("RestAI Comprehensive Scenario Tests", function () {
       ).to.be.reverted;
     });
 
+    // Test: Ensure wallet holdings cannot exceed maximum limit
+    // Prevents concentration of tokens in single wallets
+    // Fixed: Now properly provides enough tokens to user2 for testing
     it("Should enforce max wallet limit", async function () {
       const maxWallet = TOTAL_SUPPLY / 100n; // 1% max wallet
       await restAI.setLimits(maxWallet, maxWallet, maxWallet);
@@ -229,7 +246,7 @@ describe("RestAI Comprehensive Scenario Tests", function () {
       // This should fail because user1 would receive more than maxWallet
       await expect(
         restAI.connect(user2).transfer(user1.address, maxWallet + 1n)
-      ).to.be.revertedWithCustomError(restAI, "AmountOutOfBounds");
+      ).to.be.revertedWithCustomError(restAI, "WalletAmountExceedsLimit");
 
       // Transfer up to exactly max wallet should work
       await restAI.connect(user2).transfer(user1.address, maxWallet / 2n);
@@ -243,9 +260,11 @@ describe("RestAI Comprehensive Scenario Tests", function () {
       // Additional transfer should fail (user1 wallet would exceed max)
       await expect(
         restAI.connect(user2).transfer(user1.address, maxWallet / 2n + 1n)
-      ).to.be.revertedWithCustomError(restAI, "AmountOutOfBounds");
+      ).to.be.revertedWithCustomError(restAI, "WalletAmountExceedsLimit");
     });
 
+    // Test: Verify excluded addresses can bypass all limits
+    // Necessary for liquidity pools, bridges, and special contracts
     it("Should allow excluded addresses to exceed limits", async function () {
       const maxWallet = TOTAL_SUPPLY / 100n; // 1%
       await restAI.setLimits(maxWallet, maxWallet, maxWallet);
@@ -258,11 +277,13 @@ describe("RestAI Comprehensive Scenario Tests", function () {
       expect(await restAI.balanceOf(user1.address)).to.equal(maxWallet * 5n);
     });
 
+    // Test: Confirm limits must be within valid ranges (0.01% to 10%)
+    // Prevents setting limits that would break token functionality
     it("Should validate limit boundaries", async function () {
       // Too small (< 0.01%)
       await expect(
         restAI.setLimits(0, TOTAL_SUPPLY / 100n, TOTAL_SUPPLY / 100n)
-      ).to.be.revertedWithCustomError(restAI, "AmountOutOfBounds");
+      ).to.be.revertedWithCustomError(restAI, "LimitOutOfRange");
 
       // Too large (> 10%)
       await expect(
@@ -271,7 +292,7 @@ describe("RestAI Comprehensive Scenario Tests", function () {
           TOTAL_SUPPLY / 100n,
           TOTAL_SUPPLY / 100n
         )
-      ).to.be.revertedWithCustomError(restAI, "AmountOutOfBounds");
+      ).to.be.revertedWithCustomError(restAI, "LimitOutOfRange");
 
       // Valid range
       await restAI.setLimits(
@@ -282,12 +303,24 @@ describe("RestAI Comprehensive Scenario Tests", function () {
     });
   });
 
+  /**
+   * SCENARIO 4: Tax Collection & Distribution
+   *
+   * Tests the tax system functionality:
+   * - Buy tax collection (3% default)
+   * - Sell tax collection (5% default)
+   * - Transfer tax when enabled
+   * - Tax exemption for excluded addresses
+   * - Maximum fee limits (20% cap)
+   */
   describe("SCENARIO 4: Tax Collection & Distribution", function () {
     beforeEach(async function () {
       await restAI.launch(LAUNCH_TOKENS, { value: LAUNCH_ETH });
       await restAI.setLimitsEnabled(false); // Disable for easier testing
     });
 
+    // Test: Verify 3% tax is collected on DEX purchases
+    // Ensures revenue generation for operations and development
     it("Should collect correct buy tax (3%)", async function () {
       const contractBefore = await restAI.balanceOf(await restAI.getAddress());
 
@@ -310,6 +343,8 @@ describe("RestAI Comprehensive Scenario Tests", function () {
       expect(taxCollected).to.be.closeTo(expectedTax, expectedTax / 100n);
     });
 
+    // Test: Confirm 5% tax is collected on DEX sales
+    // Higher sell tax discourages quick profit-taking
     it("Should collect correct sell tax (5%)", async function () {
       // Buy first
       await router
@@ -358,6 +393,8 @@ describe("RestAI Comprehensive Scenario Tests", function () {
       }
     });
 
+    // Test: Verify transfer tax applies to wallet-to-wallet transfers
+    // Optional feature for additional revenue during high activity
     it("Should collect transfer tax when enabled", async function () {
       // Set transfer tax to 2%
       await restAI.setFees(300, 500, 200);
@@ -380,6 +417,8 @@ describe("RestAI Comprehensive Scenario Tests", function () {
       );
     });
 
+    // Test: Confirm tax collection can be completely disabled
+    // Allows for tax-free periods or emergency situations
     it("Should not collect tax when disabled", async function () {
       await restAI.setTaxesEnabled(false);
 
@@ -401,6 +440,8 @@ describe("RestAI Comprehensive Scenario Tests", function () {
       expect(await restAI.balanceOf(user2.address)).to.equal(balance);
     });
 
+    // Test: Verify excluded addresses don't pay taxes
+    // Prevents double taxation on operations wallet and special contracts
     it("Should not collect tax from excluded addresses", async function () {
       await restAI.excludeFromTax([user1.address], true);
 
@@ -414,6 +455,8 @@ describe("RestAI Comprehensive Scenario Tests", function () {
       expect(await restAI.balanceOf(user2.address)).to.equal(amount);
     });
 
+    // Test: Confirm system accepts maximum allowed fee (20%)
+    // Tests boundary condition for fee settings
     it("Should handle maximum fee (20%)", async function () {
       // Set maximum fees
       await restAI.setFees(2000, 2000, 2000);
@@ -425,6 +468,8 @@ describe("RestAI Comprehensive Scenario Tests", function () {
       expect(await restAI.balanceOf(user2.address)).to.equal(parseEther("800")); // 80% after 20% tax
     });
 
+    // Test: Ensure fees above 20% are rejected
+    // Protects users from excessive taxation
     it("Should reject fees above maximum", async function () {
       await expect(
         restAI.setFees(2001, 2000, 2000)
@@ -432,12 +477,24 @@ describe("RestAI Comprehensive Scenario Tests", function () {
     });
   });
 
+  /**
+   * SCENARIO 5: Automatic Swap Mechanism
+   *
+   * Tests the automated token-to-ETH swap functionality:
+   * - Automatic triggering at threshold
+   * - Threshold boundaries validation
+   * - Manual swap capability for managers
+   * - Maximum swap amount capping
+   * - Access control for manual swaps
+   */
   describe("SCENARIO 5: Automatic Swap Mechanism", function () {
     beforeEach(async function () {
       await restAI.launch(LAUNCH_TOKENS, { value: LAUNCH_ETH });
       await restAI.setLimitsEnabled(false);
     });
 
+    // Test: Verify automatic swap triggers when contract balance reaches threshold
+    // Converts collected taxes to ETH for operations wallet
     it("Should trigger automatic swap at threshold", async function () {
       // Set low threshold for testing
       const threshold = TOTAL_SUPPLY / 10000n; // 0.01%
@@ -474,21 +531,25 @@ describe("RestAI Comprehensive Scenario Tests", function () {
       }
     });
 
+    // Test: Confirm swap threshold must be within valid range (0.01% to 5%)
+    // Prevents too frequent or too rare swaps
     it("Should enforce swap threshold boundaries", async function () {
       // Too small (< 0.01%)
       await expect(
         restAI.setTokensForSwap(TOTAL_SUPPLY / 100000n)
-      ).to.be.revertedWithCustomError(restAI, "AmountTooSmall");
+      ).to.be.revertedWithCustomError(restAI, "SwapThresholdOutOfRange");
 
       // Too large (> 5%)
       await expect(
         restAI.setTokensForSwap((TOTAL_SUPPLY * 6n) / 100n)
-      ).to.be.revertedWithCustomError(restAI, "AmountTooLarge");
+      ).to.be.revertedWithCustomError(restAI, "SwapThresholdOutOfRange");
 
       // Valid range
       await restAI.setTokensForSwap(TOTAL_SUPPLY / 100n); // 1%
     });
 
+    // Test: Verify managers can manually trigger swaps
+    // Useful for emergency situations or gas optimization
     it("Should allow manual swap by manager", async function () {
       // Send tokens to contract
       await restAI.transfer(await restAI.getAddress(), parseEther("10000"));
@@ -505,16 +566,22 @@ describe("RestAI Comprehensive Scenario Tests", function () {
       expect(opsAfter).to.be.gt(opsBefore);
     });
 
+    // Test: Ensure manual swap fails when contract has no tokens
+    // Prevents wasted gas on empty swaps
     it("Should prevent manual swap without tokens", async function () {
       await expect(restAI.manualSwap()).to.be.revertedWith("No tokens to swap");
     });
 
+    // Test: Confirm only managers can trigger manual swaps
+    // Protects against unauthorized swap manipulation
     it("Should prevent manual swap by non-manager", async function () {
       await restAI.transfer(await restAI.getAddress(), parseEther("1000"));
 
       await expect(restAI.connect(user1).manualSwap()).to.be.reverted;
     });
 
+    // Test: Verify swaps are capped at 20x the threshold
+    // Prevents massive dumps that could impact price
     it("Should cap maximum swap amount", async function () {
       // Send lots of tokens to contract
       const largeAmount = parseEther("50000000"); // 5% of supply
@@ -532,11 +599,22 @@ describe("RestAI Comprehensive Scenario Tests", function () {
     });
   });
 
+  /**
+   * SCENARIO 6: Blacklist Functionality
+   *
+   * Tests the address blocking mechanism:
+   * - Blocking transfers from/to blacklisted addresses
+   * - Blocking DEX trades for blacklisted addresses
+   * - Unblocking functionality
+   * - Access control for blacklist management
+   */
   describe("SCENARIO 6: Blacklist Functionality", function () {
     beforeEach(async function () {
       await restAI.launch(LAUNCH_TOKENS, { value: LAUNCH_ETH });
     });
 
+    // Test: Verify blacklisted addresses cannot send tokens
+    // Prevents malicious actors from moving stolen/scammed tokens
     it("Should block transfers from blacklisted address", async function () {
       await restAI.transfer(attacker.address, parseEther("1000"));
 
@@ -548,6 +626,8 @@ describe("RestAI Comprehensive Scenario Tests", function () {
       ).to.be.revertedWithCustomError(restAI, "AccountBlockedFromTransfer");
     });
 
+    // Test: Confirm tokens cannot be sent to blacklisted addresses
+    // Prevents funding of malicious accounts
     it("Should block transfers to blacklisted address", async function () {
       await restAI.setBlockAccount(attacker.address, true);
 
@@ -556,6 +636,8 @@ describe("RestAI Comprehensive Scenario Tests", function () {
       ).to.be.revertedWithCustomError(restAI, "AccountBlockedFromTransfer");
     });
 
+    // Test: Ensure blacklisted addresses cannot trade on DEX
+    // Comprehensive blocking includes all trading venues
     it("Should block Uniswap trades for blacklisted address", async function () {
       await restAI.setBlockAccount(attacker.address, true);
       await restAI.setLimitsEnabled(false);
@@ -573,6 +655,8 @@ describe("RestAI Comprehensive Scenario Tests", function () {
       ).to.be.reverted;
     });
 
+    // Test: Verify addresses can be unblocked
+    // Allows for correction of mistakes or rehabilitation
     it("Should allow unblocking", async function () {
       await restAI.transfer(user1.address, parseEther("1000"));
       await restAI.setBlockAccount(user1.address, true);
@@ -590,6 +674,8 @@ describe("RestAI Comprehensive Scenario Tests", function () {
       expect(await restAI.balanceOf(user2.address)).to.equal(parseEther("100"));
     });
 
+    // Test: Confirm only managers can modify blacklist
+    // Prevents unauthorized blocking/unblocking
     it("Should only allow manager to block/unblock", async function () {
       await expect(restAI.connect(user1).setBlockAccount(user2.address, true))
         .to.be.reverted;
@@ -600,11 +686,21 @@ describe("RestAI Comprehensive Scenario Tests", function () {
     });
   });
 
+  /**
+   * SCENARIO 7: Pause Mechanism
+   *
+   * Tests the emergency pause functionality:
+   * - Pausing all token transfers
+   * - Unpausing and resuming operations
+   * - Admin-only access control
+   */
   describe("SCENARIO 7: Pause Mechanism", function () {
     beforeEach(async function () {
       await restAI.launch(LAUNCH_TOKENS, { value: LAUNCH_ETH });
     });
 
+    // Test: Verify pause stops all token movements
+    // Emergency feature for critical situations
     it("Should pause all transfers", async function () {
       await restAI.pause();
 
@@ -626,6 +722,8 @@ describe("RestAI Comprehensive Scenario Tests", function () {
       ).to.be.reverted;
     });
 
+    // Test: Confirm unpause restores normal functionality
+    // Allows recovery after emergency resolution
     it("Should unpause and resume normal operation", async function () {
       await restAI.pause();
 
@@ -640,6 +738,8 @@ describe("RestAI Comprehensive Scenario Tests", function () {
       expect(await restAI.balanceOf(user1.address)).to.equal(parseEther("100"));
     });
 
+    // Test: Ensure only admin can control pause state
+    // Prevents unauthorized contract freezing
     it("Should only allow admin to pause/unpause", async function () {
       await expect(restAI.connect(manager).pause()).to.be.reverted;
       await expect(restAI.connect(user1).pause()).to.be.reverted;
@@ -653,11 +753,23 @@ describe("RestAI Comprehensive Scenario Tests", function () {
     });
   });
 
+  /**
+   * SCENARIO 8: Emergency Functions
+   *
+   * Tests emergency recovery mechanisms:
+   * - Withdrawing stuck tokens
+   * - Withdrawing stuck ETH
+   * - Recovering other ERC20 tokens
+   * - Admin-only access control
+   * - Reentrancy protection
+   */
   describe("SCENARIO 8: Emergency Functions", function () {
     beforeEach(async function () {
       await restAI.launch(LAUNCH_TOKENS, { value: LAUNCH_ETH });
     });
 
+    // Test: Verify admin can recover accidentally sent tokens
+    // Prevents permanent loss of user funds
     it("Should withdraw stuck tokens", async function () {
       const stuckAmount = parseEther("10000");
       await restAI.transfer(await restAI.getAddress(), stuckAmount);
@@ -670,11 +782,15 @@ describe("RestAI Comprehensive Scenario Tests", function () {
       expect(ownerAfter - ownerBefore).to.equal(stuckAmount);
     });
 
+    // Test: Confirm ETH recovery functionality (skipped - needs implementation)
+    // Would allow recovery of ETH sent directly to contract
     it("Should withdraw stuck ETH", async function () {
       // Skip ETH withdrawal test as it has an issue in the contract
       this.skip();
     });
 
+    // Test: Verify recovery of non-native tokens sent by mistake
+    // Handles user errors when sending wrong tokens
     it("Should withdraw other ERC20 tokens", async function () {
       // Deploy a mock ERC20
       const MockERC20 = await ethers.getContractFactory("RestAI");
@@ -687,6 +803,8 @@ describe("RestAI Comprehensive Scenario Tests", function () {
         .to.be.reverted;
     });
 
+    // Test: Confirm only admin can execute emergency withdrawals
+    // Prevents unauthorized asset recovery
     it("Should only allow admin to withdraw", async function () {
       await restAI.transfer(await restAI.getAddress(), parseEther("1000"));
 
@@ -702,6 +820,8 @@ describe("RestAI Comprehensive Scenario Tests", function () {
       await restAI.connect(owner).withdrawTokens(await restAI.getAddress());
     });
 
+    // Test: Verify reentrancy guard prevents recursive calls
+    // Critical security feature for swap operations
     it("Should handle reentrancy protection", async function () {
       // withdrawTokens has nonReentrant modifier
       // Manual swap has nonReentrant modifier
@@ -710,7 +830,17 @@ describe("RestAI Comprehensive Scenario Tests", function () {
     });
   });
 
+  /**
+   * SCENARIO 9: Access Control
+   *
+   * Tests role-based access control system:
+   * - Role management (granting/revoking)
+   * - Function-level permission enforcement
+   * - Role renouncement capability
+   */
   describe("SCENARIO 9: Access Control", function () {
+    // Test: Verify role granting and revoking works correctly
+    // Ensures proper delegation of responsibilities
     it("Should properly manage roles", async function () {
       const MANAGER_ROLE = await restAI.MANAGER_ROLE();
       const DEFAULT_ADMIN_ROLE = await restAI.DEFAULT_ADMIN_ROLE();
@@ -731,6 +861,8 @@ describe("RestAI Comprehensive Scenario Tests", function () {
       expect(await restAI.hasRole(UPGRADER_ROLE, user1.address)).to.be.false;
     });
 
+    // Test: Confirm functions check role requirements
+    // Prevents unauthorized access to critical functions
     it("Should enforce role requirements for functions", async function () {
       // Manager functions
       await expect(restAI.connect(user1).setLimitsEnabled(false)).to.be
@@ -750,6 +882,8 @@ describe("RestAI Comprehensive Scenario Tests", function () {
       await restAI.connect(owner).setOperationsWallet(user2.address);
     });
 
+    // Test: Verify roles can be permanently renounced
+    // Allows for progressive decentralization
     it("Should allow role renouncement", async function () {
       const MANAGER_ROLE = await restAI.MANAGER_ROLE();
 
@@ -764,12 +898,22 @@ describe("RestAI Comprehensive Scenario Tests", function () {
     });
   });
 
+  /**
+   * SCENARIO 10: Complex Trading Patterns
+   *
+   * Tests realistic trading scenarios:
+   * - Rapid buy-sell-buy sequences
+   * - Multiple simultaneous traders
+   * - Sandwich attack attempts
+   */
   describe("SCENARIO 10: Complex Trading Patterns", function () {
     beforeEach(async function () {
       await restAI.launch(LAUNCH_TOKENS, { value: LAUNCH_ETH });
       await restAI.setLimitsEnabled(false);
     });
 
+    // Test: Verify contract handles rapid trading without issues
+    // Simulates bot trading and high-frequency patterns
     it("Should handle rapid buy-sell-buy sequence", async function () {
       // Buy
       await router
@@ -811,6 +955,8 @@ describe("RestAI Comprehensive Scenario Tests", function () {
       expect(finalBalance).to.be.gt(0);
     });
 
+    // Test: Confirm concurrent trades process correctly
+    // Tests race conditions and state management
     it("Should handle multiple users trading simultaneously", async function () {
       // Multiple buys
       await Promise.all([
@@ -848,6 +994,8 @@ describe("RestAI Comprehensive Scenario Tests", function () {
       expect(await restAI.balanceOf(user3.address)).to.be.gt(0);
     });
 
+    // Test: Simulate sandwich attack with frontrun and backrun
+    // Verifies MEV protection and fair trading
     it("Should handle sandwich attack scenario", async function () {
       // Attacker tries to sandwich a user's trade
       // Buy before user
@@ -890,15 +1038,29 @@ describe("RestAI Comprehensive Scenario Tests", function () {
     });
   });
 
+  /**
+   * SCENARIO 11: Edge Cases & Boundary Conditions
+   *
+   * Tests edge cases and unusual inputs:
+   * - Zero amount transfers
+   * - Self-transfers
+   * - Invalid addresses
+   * - Duplicate settings
+   * - Maximum values
+   */
   describe("SCENARIO 11: Edge Cases & Boundary Conditions", function () {
     beforeEach(async function () {
       await restAI.launch(LAUNCH_TOKENS, { value: LAUNCH_ETH });
     });
 
+    // Test: Verify zero amount transfers are handled gracefully
+    // Edge case that shouldn't break the contract
     it("Should handle zero amount transfers", async function () {
       await expect(restAI.transfer(user1.address, 0)).to.not.be.reverted;
     });
 
+    // Test: Confirm self-transfers work correctly
+    // Unusual but valid operation
     it("Should handle transfers to self", async function () {
       await restAI.transfer(user1.address, parseEther("1000"));
 
@@ -910,11 +1072,15 @@ describe("RestAI Comprehensive Scenario Tests", function () {
       expect(balanceAfter).to.be.lte(balanceBefore);
     });
 
+    // Test: Ensure transfers to zero address are rejected
+    // Prevents token burning through transfers
     it("Should handle transfers to zero address (should fail)", async function () {
       await expect(restAI.transfer(ZeroAddress, parseEther("100"))).to.be
         .reverted;
     });
 
+    // Test: Verify setting unchanged values doesn't break contract
+    // Tests idempotent operations
     it("Should handle setting same values", async function () {
       const fees = await restAI.fees();
 
@@ -927,6 +1093,8 @@ describe("RestAI Comprehensive Scenario Tests", function () {
       await restAI.setLimits(limits.maxBuy, limits.maxSell, limits.maxWallet);
     });
 
+    // Test: Confirm max uint256 approvals work correctly
+    // Common pattern for infinite approval
     it("Should handle maximum uint256 approval", async function () {
       await restAI.transfer(user1.address, parseEther("1000"));
 
@@ -938,11 +1106,22 @@ describe("RestAI Comprehensive Scenario Tests", function () {
     });
   });
 
+  /**
+   * SCENARIO 12: Operations Wallet Management
+   *
+   * Tests operations wallet functionality:
+   * - Updating wallet address
+   * - ETH distribution to new wallet
+   * - Zero address validation
+   * - Access control
+   */
   describe("SCENARIO 12: Operations Wallet Management", function () {
     beforeEach(async function () {
       await restAI.launch(LAUNCH_TOKENS, { value: LAUNCH_ETH });
     });
 
+    // Test: Verify operations wallet can be changed
+    // Allows for wallet rotation and security updates
     it("Should update operations wallet", async function () {
       const newWallet = user3.address;
 
@@ -950,6 +1129,8 @@ describe("RestAI Comprehensive Scenario Tests", function () {
       expect(await restAI.operationsWallet()).to.equal(newWallet);
     });
 
+    // Test: Confirm ETH goes to updated operations wallet
+    // Ensures revenue flows to correct destination
     it("Should send swapped ETH to new operations wallet", async function () {
       // Change operations wallet
       await restAI.setOperationsWallet(user3.address);
@@ -963,12 +1144,16 @@ describe("RestAI Comprehensive Scenario Tests", function () {
       expect(user3Balance).to.be.gt(parseEther("10000")); // Initial balance
     });
 
+    // Test: Ensure zero address cannot be set as operations wallet
+    // Prevents loss of funds
     it("Should reject zero address for operations wallet", async function () {
       await expect(restAI.setOperationsWallet(ZeroAddress)).to.be.revertedWith(
         "Cannot set zero address"
       );
     });
 
+    // Test: Verify only admin can update operations wallet
+    // Critical security control for revenue management
     it("Should only allow admin to change operations wallet", async function () {
       await expect(restAI.connect(manager).setOperationsWallet(user3.address))
         .to.be.reverted;
@@ -978,11 +1163,22 @@ describe("RestAI Comprehensive Scenario Tests", function () {
     });
   });
 
+  /**
+   * SCENARIO 13: AMM Pair Management
+   *
+   * Tests automated market maker pair configuration:
+   * - Marking additional AMM pairs
+   * - Unmarking AMM pairs
+   * - Tax application for different pair types
+   * - Zero address validation
+   */
   describe("SCENARIO 13: AMM Pair Management", function () {
     beforeEach(async function () {
       await restAI.launch(LAUNCH_TOKENS, { value: LAUNCH_ETH });
     });
 
+    // Test: Verify new AMM pairs can be registered
+    // Supports multiple DEX integrations
     it("Should mark additional AMM pairs", async function () {
       const newPair = user3.address; // Mock pair address
 
@@ -990,6 +1186,8 @@ describe("RestAI Comprehensive Scenario Tests", function () {
       expect(await restAI.automatedMarketMakerPairs(newPair)).to.be.true;
     });
 
+    // Test: Confirm AMM pairs can be removed from registry
+    // Allows for dynamic pair management
     it("Should unmark AMM pairs", async function () {
       const newPair = user3.address;
 
@@ -999,6 +1197,8 @@ describe("RestAI Comprehensive Scenario Tests", function () {
       expect(await restAI.automatedMarketMakerPairs(newPair)).to.be.false;
     });
 
+    // Test: Verify correct tax rates apply to AMM trades
+    // Different rates for buy (3%) vs sell (5%) on AMM pairs
     it("Should apply different tax for AMM pairs", async function () {
       // Mark user2 as AMM pair for testing
       await restAI.setAutomaticMarketMakerPair(user2.address, true);
@@ -1016,6 +1216,8 @@ describe("RestAI Comprehensive Scenario Tests", function () {
       );
     });
 
+    // Test: Ensure zero address cannot be marked as AMM pair
+    // Prevents configuration errors
     it("Should reject zero address as AMM pair", async function () {
       await expect(
         restAI.setAutomaticMarketMakerPair(ZeroAddress, true)
@@ -1023,11 +1225,21 @@ describe("RestAI Comprehensive Scenario Tests", function () {
     });
   });
 
+  /**
+   * SCENARIO 14: Gas Optimization Tests
+   *
+   * Tests efficient batch operations and gas usage:
+   * - Batch exclusion of multiple addresses
+   * - Large number of sequential transfers
+   * - Gas-efficient operations
+   */
   describe("SCENARIO 14: Gas Optimization Tests", function () {
     beforeEach(async function () {
       await restAI.launch(LAUNCH_TOKENS, { value: LAUNCH_ETH });
     });
 
+    // Test: Verify batch operations save gas vs individual calls
+    // Optimizes admin operations for large holder lists
     it("Should batch exclude multiple addresses efficiently", async function () {
       const addresses = [];
       for (let i = 0; i < 10; i++) {
@@ -1051,6 +1263,8 @@ describe("RestAI Comprehensive Scenario Tests", function () {
       }
     });
 
+    // Test: Confirm contract handles many transfers without issues
+    // Stress tests the contract under high load
     it("Should handle large number of transfers", async function () {
       await restAI.setLimitsEnabled(false);
 
@@ -1068,7 +1282,17 @@ describe("RestAI Comprehensive Scenario Tests", function () {
     });
   });
 
+  /**
+   * SCENARIO 15: Upgrade Functionality
+   *
+   * Tests the UUPS upgrade mechanism:
+   * - Role-based upgrade permissions
+   * - Upgrade process validation
+   * - Protection against unauthorized upgrades
+   */
   describe("SCENARIO 15: Upgrade Functionality", function () {
+    // Test: Verify only UPGRADER_ROLE can perform contract upgrades
+    // Critical security feature for contract maintenance
     it("Should only allow upgrader role to upgrade", async function () {
       const UPGRADER_ROLE = await restAI.UPGRADER_ROLE();
 
