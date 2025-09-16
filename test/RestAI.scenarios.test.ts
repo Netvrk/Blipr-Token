@@ -97,18 +97,19 @@ describe("RestAI Comprehensive Scenario Tests", function () {
       // Try to launch without tokens
       await expect(
         restAI.connect(owner).launch(LAUNCH_TOKENS, { value: LAUNCH_ETH })
-      ).to.be.revertedWith("Insufficient token balance");
+      ).to.be.revertedWithCustomError(restAI, "InsufficientTokenBalance");
     });
 
     it("Should prevent launch without ETH", async function () {
       await expect(
         restAI.launch(LAUNCH_TOKENS, { value: 0 })
-      ).to.be.revertedWith("Zero ETH amount");
+      ).to.be.revertedWithCustomError(restAI, "ZeroETHAmount");
     });
 
     it("Should prevent launch with zero tokens", async function () {
-      await expect(restAI.launch(0, { value: LAUNCH_ETH })).to.be.revertedWith(
-        "Zero token amount"
+      await expect(restAI.launch(0, { value: LAUNCH_ETH })).to.be.revertedWithCustomError(
+        restAI,
+        "ZeroTokenAmount"
       );
     });
   });
@@ -569,7 +570,7 @@ describe("RestAI Comprehensive Scenario Tests", function () {
     // Test: Ensure manual swap fails when contract has no tokens
     // Prevents wasted gas on empty swaps
     it("Should prevent manual swap without tokens", async function () {
-      await expect(restAI.manualSwap()).to.be.revertedWith("No tokens to swap");
+      await expect(restAI.manualSwap()).to.be.revertedWithCustomError(restAI, "NoTokensToSwap");
     });
 
     // Test: Confirm only managers can trigger manual swaps
@@ -1160,8 +1161,9 @@ describe("RestAI Comprehensive Scenario Tests", function () {
     // Test: Ensure zero address cannot be set as operations wallet
     // Prevents loss of funds
     it("Should reject zero address for operations wallet", async function () {
-      await expect(restAI.setOperationsWallet(ZeroAddress)).to.be.revertedWith(
-        "Cannot set zero address"
+      await expect(restAI.setOperationsWallet(ZeroAddress)).to.be.revertedWithCustomError(
+        restAI,
+        "ZeroAddress"
       );
     });
 
@@ -1195,7 +1197,7 @@ describe("RestAI Comprehensive Scenario Tests", function () {
     it("Should mark additional AMM pairs", async function () {
       const newPair = user3.address; // Mock pair address
 
-      await restAI.setAutomaticMarketMakerPair(newPair, true);
+      await restAI.setAutomatedMarketMakerPair(newPair, true);
       expect(await restAI.automatedMarketMakerPairs(newPair)).to.be.true;
     });
 
@@ -1204,8 +1206,8 @@ describe("RestAI Comprehensive Scenario Tests", function () {
     it("Should unmark AMM pairs", async function () {
       const newPair = user3.address;
 
-      await restAI.setAutomaticMarketMakerPair(newPair, true);
-      await restAI.setAutomaticMarketMakerPair(newPair, false);
+      await restAI.setAutomatedMarketMakerPair(newPair, true);
+      await restAI.setAutomatedMarketMakerPair(newPair, false);
 
       expect(await restAI.automatedMarketMakerPairs(newPair)).to.be.false;
     });
@@ -1214,7 +1216,7 @@ describe("RestAI Comprehensive Scenario Tests", function () {
     // Different rates for buy (3%) vs sell (5%) on AMM pairs
     it("Should apply different tax for AMM pairs", async function () {
       // Mark user2 as AMM pair for testing
-      await restAI.setAutomaticMarketMakerPair(user2.address, true);
+      await restAI.setAutomatedMarketMakerPair(user2.address, true);
 
       // Transfer to user1 (normal)
       await restAI.transfer(user1.address, parseEther("1000"));
@@ -1233,8 +1235,8 @@ describe("RestAI Comprehensive Scenario Tests", function () {
     // Prevents configuration errors
     it("Should reject zero address as AMM pair", async function () {
       await expect(
-        restAI.setAutomaticMarketMakerPair(ZeroAddress, true)
-      ).to.be.revertedWith("Cannot set zero address");
+        restAI.setAutomatedMarketMakerPair(ZeroAddress, true)
+      ).to.be.revertedWithCustomError(restAI, "ZeroAddress");
     });
   });
 

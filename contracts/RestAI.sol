@@ -101,13 +101,17 @@ contract RestAI is
     error AmountTooLarge();
     error EmptyArray();
     error BatchSizeExceeded(uint256 provided, uint256 maximum);
+    error ZeroTokenAmount();
+    error ZeroETHAmount();
+    error InsufficientTokenBalance();
+    error ZeroAddress();
+    error NoTokensToSwap();
 
     // Swap and Liquify
     address public operationsWallet;
     bool private inSwapBack;
     uint256 private lastSwapBackExecutionBlock;
 
-    // Missing modifier
     modifier lockSwapBack() {
         inSwapBack = true;
         _;
@@ -193,12 +197,9 @@ contract RestAI is
         uint256 tokenAmount
     ) external payable onlyRole(MANAGER_ROLE) nonReentrant {
         require(!isLaunched, AlreadyLaunched());
-        require(tokenAmount > 0, "Zero token amount");
-        require(msg.value > 0, "Zero ETH amount");
-        require(
-            balanceOf(msg.sender) >= tokenAmount,
-            "Insufficient token balance"
-        );
+        require(tokenAmount > 0, ZeroTokenAmount());
+        require(msg.value > 0, ZeroETHAmount());
+        require(balanceOf(msg.sender) >= tokenAmount, InsufficientTokenBalance());
 
         // Set up router (Base mainnet Uniswap V2 Router)
         swapRouter = IUniswapV2Router02(
@@ -230,7 +231,9 @@ contract RestAI is
         // Approve the pair
         IERC20(swapPair).approve(address(swapRouter), type(uint).max);
 
-        _setAutomatedMarketMakerPair(swapPair, true);
+        // Set the pair as an AMM pair directly
+        automatedMarketMakerPairs[swapPair] = true;
+        emit SetAutomatedMarketMakerPair(swapPair, true);
         isLaunched = true;
         emit Launch();
     }
@@ -306,29 +309,19 @@ contract RestAI is
     }
 
     /**
-     * @dev Internal function to set or unset an address as an automated market maker pair.
-     * @param pair The address to set or unset as an AMM pair
-     * @param value True to set as AMM pair, false to unset
-     */
-    function _setAutomatedMarketMakerPair(
-        address pair,
-        bool value
-    ) internal virtual {
-        require(pair != address(0), "Cannot set zero address");
-        automatedMarketMakerPairs[pair] = value;
-        emit SetAutomatedMarketMakerPair(pair, value);
-    }
-
-    /**
      * @dev Set (or unset) an address as an automated market maker pair.
      *      Typically used for DEX pairs.
      *      Only MANAGER_ROLE can call.
+     * @param pair The address to set or unset as an AMM pair
+     * @param value True to set as AMM pair, false to unset
      */
-    function setAutomaticMarketMakerPair(
+    function setAutomatedMarketMakerPair(
         address pair,
         bool value
     ) external onlyRole(MANAGER_ROLE) {
-        _setAutomatedMarketMakerPair(pair, value);
+        require(pair != address(0), ZeroAddress());
+        automatedMarketMakerPairs[pair] = value;
+        emit SetAutomatedMarketMakerPair(pair, value);
     }
 
     /**
@@ -338,7 +331,7 @@ contract RestAI is
     function setOperationsWallet(
         address _wallet
     ) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        require(_wallet != address(0), "Cannot set zero address");
+        require(_wallet != address(0), ZeroAddress());
         operationsWallet = _wallet;
     }
 
@@ -376,8 +369,8 @@ contract RestAI is
         address[] calldata accounts,
         bool value
     ) external onlyRole(MANAGER_ROLE) {
-        require(accounts.length > 0, "EmptyArray");
-        require(accounts.length <= 100, "BatchSizeExceeded");
+        require(accounts.length > 0, EmptyArray());
+        require(accounts.length <= 100, BatchSizeExceeded(accounts.length, 100));
         for (uint256 i = 0; i < accounts.length; i++) {
             _excludeFromLimits(accounts[i], value);
         }
@@ -391,8 +384,8 @@ contract RestAI is
         address[] calldata accounts,
         bool value
     ) external onlyRole(MANAGER_ROLE) {
-        require(accounts.length > 0, "EmptyArray");
-        require(accounts.length <= 100, "BatchSizeExceeded");
+        require(accounts.length > 0, EmptyArray());
+        require(accounts.length <= 100, BatchSizeExceeded(accounts.length, 100));
         for (uint256 i = 0; i < accounts.length; i++) {
             _excludeFromTax(accounts[i], value);
         }
@@ -524,7 +517,7 @@ contract RestAI is
         // Perform swap if threshold reached and not buying tokens
         if (applyTax && shouldSwap && !automatedMarketMakerPairs[from]) {
             if (block.number > lastSwapBackExecutionBlock + 3) {
-                _swapBack(contractTokenBalance);
+                _swapTokensForEth(contractTokenBalance);
                 lastSwapBackExecutionBlock = block.number;
             }
         }
@@ -535,15 +528,11 @@ contract RestAI is
 
     function manualSwap() external onlyRole(MANAGER_ROLE) nonReentrant {
         uint256 contractTokenBalance = balanceOf(address(this));
-        require(contractTokenBalance > 0, "No tokens to swap");
+        require(contractTokenBalance > 0, NoTokensToSwap());
         _swapTokensForEth(contractTokenBalance);
     }
 
-    function _swapBack(uint256 balance) internal virtual lockSwapBack {
-        _swapTokensForEth(balance);
-    }
-
-    function _swapTokensForEth(uint256 balance) internal {
+    function _swapTokensForEth(uint256 balance) internal lockSwapBack {
         bool success;
         address[] memory path = new address[](2);
         path[0] = address(this);
