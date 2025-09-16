@@ -199,6 +199,43 @@ describe("RestAI Comprehensive Scenario Tests", function () {
         restAI.connect(user1).launch(LAUNCH_TOKENS, { value: LAUNCH_ETH })
       ).to.be.reverted;
     });
+
+    it("Should send LP tokens to operations wallet during launch", async function () {
+      // Get the factory to find pair address
+      const factory = await ethers.getContractAt(
+        ["function getPair(address,address) view returns (address)"],
+        await router.factory()
+      );
+
+      // Launch the token
+      await restAI.launch(LAUNCH_TOKENS, { value: LAUNCH_ETH });
+
+      // Get the pair address
+      const pairAddress = await factory.getPair(
+        await restAI.getAddress(),
+        WETH_ADDRESS
+      );
+
+      // Get pair contract
+      const pair = await ethers.getContractAt(
+        ["function balanceOf(address) view returns (uint256)",
+         "function totalSupply() view returns (uint256)"],
+        pairAddress
+      );
+
+      // Check operations wallet received LP tokens
+      const lpBalance = await pair.balanceOf(operationsWallet.address);
+      expect(lpBalance).to.be.gt(0);
+
+      // Verify contract didn't keep LP tokens
+      const contractLpBalance = await pair.balanceOf(await restAI.getAddress());
+      expect(contractLpBalance).to.equal(0);
+
+      // Operations wallet should have most of the LP tokens (minus minimum liquidity)
+      const totalSupply = await pair.totalSupply();
+      const minLiquidity = parseEther("0.000000000000001"); // Uniswap min liquidity
+      expect(lpBalance).to.be.closeTo(totalSupply - minLiquidity, parseEther("0.0001"));
+    });
   });
 
   /**

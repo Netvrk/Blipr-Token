@@ -108,6 +108,7 @@ contract RestAI is
     error ZeroAddress();
     error NoTokensToSwap();
     error RouterNotSet();
+    error ETHTransferFailed();
 
     // Swap and Liquify
     address public operationsWallet;
@@ -245,18 +246,15 @@ contract RestAI is
             swapRouter.WETH()
         );
 
-        // Add liquidity
+        // Add liquidity - LP tokens go to operations wallet
         swapRouter.addLiquidityETH{value: msg.value}(
             address(this),
             tokenAmount,
             0,
             0,
-            address(this), // LP tokens go to contract
+            operationsWallet, // LP tokens go to operations wallet
             block.timestamp
         );
-
-        // Approve the pair
-        IERC20(swapPair).approve(address(swapRouter), type(uint).max);
 
         // Set the pair as an AMM pair directly
         automatedMarketMakerPairs[swapPair] = true;
@@ -598,6 +596,7 @@ contract RestAI is
 
         uint256 ethBalance = address(this).balance;
         (success, ) = address(operationsWallet).call{value: ethBalance}("");
+        require(success, ETHTransferFailed());
     }
 
     function _excludeFromLimits(address account, bool value) internal virtual {
