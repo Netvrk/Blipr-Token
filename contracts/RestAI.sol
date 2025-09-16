@@ -41,21 +41,21 @@ contract RestAI is
     }
     Limits public limits;
 
-    // Fees struct optimized with uint16 to pack into 1 storage slot instead of 3
-    struct Fees {
-        uint16 buyFee;
-        uint16 sellFee;
-        uint16 transferFee;
+    // Taxes struct optimized with uint16 to pack into 1 storage slot instead of 3
+    struct Taxes {
+        uint16 buyTax;
+        uint16 sellTax;
+        uint16 transferTax;
     }
-    Fees public fees;
+    Taxes public taxes;
 
     uint256 public swapTokensAtAmount;
 
-    // Constants: maximum fee (50%) and denominator (10000 = basis points)
-    uint256 private constant MAX_FEE = 2000; // 20%
+    // Constants: maximum tax (20%) and denominator (10000 = basis points)
+    uint256 private constant MAX_TAX = 2000; // 20%
     uint256 private constant DENM = 10000;
 
-    // Track addresses excluded from fees & limits, and AMM pairs
+    // Track addresses excluded from taxes & limits, and AMM pairs
     mapping(address => bool) public isExcludedFromLimits;
     mapping(address => bool) public isExcludedFromTax;
     mapping(address => bool) public automatedMarketMakerPairs;
@@ -72,10 +72,10 @@ contract RestAI is
         uint256 newMaxSell,
         uint256 newMaxWallet
     );
-    event SetFees(
-        uint256 newBuyFee,
-        uint256 newSellFee,
-        uint256 newTransferFee
+    event SetTaxes(
+        uint256 newBuyTax,
+        uint256 newSellTax,
+        uint256 newTransferTax
     );
     event ExcludeFromLimits(address account, bool isExcluded);
     event ExcludeFromTax(address account, bool isExcluded);
@@ -84,6 +84,7 @@ contract RestAI is
     event WithdrawStuckTokens(address token, uint256 amount);
     event AccountBlocked(address account, bool value);
     event SwapTokenAmountUpdated(uint256 newValue, uint256 oldValue);
+    event RouterUpdated(address newRouter);
 
     // Enhanced custom errors with parameters for better debugging
     error AlreadyLaunched();
@@ -92,7 +93,7 @@ contract RestAI is
     error WalletAmountExceedsLimit(uint256 newBalance, uint256 maxWallet);
     error LimitOutOfRange(uint256 provided, uint256 min, uint256 max);
     error SwapThresholdOutOfRange(uint256 provided, uint256 min, uint256 max);
-    error FeeTooHigh();
+    error TaxTooHigh();
     error NoTokens();
     error FailedToWithdrawTokens();
     error NotLaunched();
@@ -106,6 +107,7 @@ contract RestAI is
     error InsufficientTokenBalance();
     error ZeroAddress();
     error NoTokensToSwap();
+    error RouterNotSet();
 
     // Swap and Liquify
     address public operationsWallet;
@@ -164,12 +166,17 @@ contract RestAI is
 
         swapTokensAtAmount = (_totalSupply * 5) / DENM; // 0.05% of total supply
 
-        // Default fees are set (cast to uint16 for gas optimization)
-        fees = Fees({
-            buyFee: uint16(300), // 3% buy tax
-            sellFee: uint16(500), // 5% sell tax
-            transferFee: uint16(0) // 0% transfer tax
+        // Default taxes are set (cast to uint16 for gas optimization)
+        taxes = Taxes({
+            buyTax: uint16(300), // 3% buy tax
+            sellTax: uint16(500), // 5% sell tax
+            transferTax: uint16(0) // 0% transfer tax
         });
+
+        // Set default router for Base mainnet
+        swapRouter = IUniswapV2Router02(
+            0x4752ba5DBc23f44D87826276BF6Fd6b1C372aD24
+        );
 
         // Exclude important addresses from limits
         _excludeFromLimits(address(this), true);
@@ -190,6 +197,27 @@ contract RestAI is
     }
 
     /**
+     * @dev Set the router address.
+     *      Must be called before launch.
+     *      Only MANAGER_ROLE can call.
+     * @param _router The address of the Uniswap V2 compatible router
+     */
+    function setRouter(address _router) external onlyRole(MANAGER_ROLE) {
+        require(!isLaunched, AlreadyLaunched());
+        require(_router != address(0), ZeroAddress());
+        swapRouter = IUniswapV2Router02(_router);
+        emit RouterUpdated(_router);
+    }
+
+    /**
+     * @dev Get the current router address.
+     * @return The address of the router
+     */
+    function getRouter() external view returns (address) {
+        return address(swapRouter);
+    }
+
+    /**
      * @dev Launch the token and enable transfers.
      *      This can only be done once by MANAGER_ROLE.
      */
@@ -199,12 +227,11 @@ contract RestAI is
         require(!isLaunched, AlreadyLaunched());
         require(tokenAmount > 0, ZeroTokenAmount());
         require(msg.value > 0, ZeroETHAmount());
-        require(balanceOf(msg.sender) >= tokenAmount, InsufficientTokenBalance());
-
-        // Set up router (Base mainnet Uniswap V2 Router)
-        swapRouter = IUniswapV2Router02(
-            0x4752ba5DBc23f44D87826276BF6Fd6b1C372aD24
+        require(
+            balanceOf(msg.sender) >= tokenAmount,
+            InsufficientTokenBalance()
         );
+        require(address(swapRouter) != address(0), RouterNotSet());
 
         // Transfer tokens to this contract for liquidity
         _transfer(msg.sender, address(this), tokenAmount);
@@ -248,7 +275,7 @@ contract RestAI is
     }
 
     /**
-     * @dev Enable or disable tax (fee).
+     * @dev Enable or disable tax.
      *      Only MANAGER_ROLE can call.
      */
     function setTaxesEnabled(bool value) external onlyRole(MANAGER_ROLE) {
@@ -257,24 +284,28 @@ contract RestAI is
     }
 
     /**
-     * @dev Set the fees for buying, selling, and transferring.
+     * @dev Set the taxes for buying, selling, and transferring.
      *      Only MANAGER_ROLE can call.
-     *      Each fee cannot exceed MAX_FEE (currently 50%).
+     *      Each tax cannot exceed MAX_TAX (currently 20%).
      */
-    function setFees(
-        uint256 newBuyFee,
-        uint256 newSellFee,
-        uint256 newTransferFee
+    function setTaxes(
+        uint256 newBuyTax,
+        uint256 newSellTax,
+        uint256 newTransferTax
     ) external onlyRole(MANAGER_ROLE) {
-        // Validate new fees against the maximum
+        // Validate new taxes against the maximum
         require(
-            newBuyFee <= MAX_FEE &&
-                newSellFee <= MAX_FEE &&
-                newTransferFee <= MAX_FEE,
-            FeeTooHigh()
+            newBuyTax <= MAX_TAX &&
+                newSellTax <= MAX_TAX &&
+                newTransferTax <= MAX_TAX,
+            TaxTooHigh()
         );
-        fees = Fees(uint16(newBuyFee), uint16(newSellFee), uint16(newTransferFee));
-        emit SetFees(newBuyFee, newSellFee, newTransferFee);
+        taxes = Taxes(
+            uint16(newBuyTax),
+            uint16(newSellTax),
+            uint16(newTransferTax)
+        );
+        emit SetTaxes(newBuyTax, newSellTax, newTransferTax);
     }
 
     /**
@@ -304,7 +335,11 @@ contract RestAI is
             LimitOutOfRange(newMaxWallet, minLimit, maxLimit)
         );
 
-        limits = Limits(uint128(newMaxBuy), uint128(newMaxSell), uint128(newMaxWallet));
+        limits = Limits(
+            uint128(newMaxBuy),
+            uint128(newMaxSell),
+            uint128(newMaxWallet)
+        );
         emit SetLimits(newMaxBuy, newMaxSell, newMaxWallet);
     }
 
@@ -370,7 +405,10 @@ contract RestAI is
         bool value
     ) external onlyRole(MANAGER_ROLE) {
         require(accounts.length > 0, EmptyArray());
-        require(accounts.length <= 100, BatchSizeExceeded(accounts.length, 100));
+        require(
+            accounts.length <= 100,
+            BatchSizeExceeded(accounts.length, 100)
+        );
         for (uint256 i = 0; i < accounts.length; i++) {
             _excludeFromLimits(accounts[i], value);
         }
@@ -385,7 +423,10 @@ contract RestAI is
         bool value
     ) external onlyRole(MANAGER_ROLE) {
         require(accounts.length > 0, EmptyArray());
-        require(accounts.length <= 100, BatchSizeExceeded(accounts.length, 100));
+        require(
+            accounts.length <= 100,
+            BatchSizeExceeded(accounts.length, 100)
+        );
         for (uint256 i = 0; i < accounts.length; i++) {
             _excludeFromTax(accounts[i], value);
         }
@@ -427,7 +468,7 @@ contract RestAI is
      *      - Checks if token is launched unless sender/receiver is excluded
      *      - Checks if addresses are blocked
      *      - Enforces transaction limits if enabled
-     *      - Calculates fees if taxes are enabled
+     *      - Calculates taxes if enabled
      *      - Swaps tokens to ETH when threshold is reached
      */
     function _update(
@@ -491,22 +532,22 @@ contract RestAI is
             !inSwapBack &&
             !(isExcludedFromTax[from] || isExcludedFromTax[to]);
         if (applyTax) {
-            uint256 feeAmount = 0;
-            if (automatedMarketMakerPairs[to] && fees.sellFee > 0) {
-                feeAmount = (amount * fees.sellFee) / DENM;
-            } else if (automatedMarketMakerPairs[from] && fees.buyFee > 0) {
-                feeAmount = (amount * fees.buyFee) / DENM;
+            uint256 taxAmount = 0;
+            if (automatedMarketMakerPairs[to] && taxes.sellTax > 0) {
+                taxAmount = (amount * taxes.sellTax) / DENM;
+            } else if (automatedMarketMakerPairs[from] && taxes.buyTax > 0) {
+                taxAmount = (amount * taxes.buyTax) / DENM;
             } else if (
                 !automatedMarketMakerPairs[to] &&
                 !automatedMarketMakerPairs[from] &&
-                fees.transferFee > 0
+                taxes.transferTax > 0
             ) {
-                feeAmount = (amount * fees.transferFee) / DENM;
+                taxAmount = (amount * taxes.transferTax) / DENM;
             }
 
-            if (feeAmount > 0) {
-                amount -= feeAmount;
-                super._update(from, address(this), feeAmount);
+            if (taxAmount > 0) {
+                amount -= taxAmount;
+                super._update(from, address(this), taxAmount);
             }
         }
 

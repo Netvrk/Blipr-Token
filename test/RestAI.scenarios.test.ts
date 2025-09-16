@@ -115,7 +115,57 @@ describe("RestAI Comprehensive Scenario Tests", function () {
   });
 
   describe("SCENARIO 2: Launch Edge Cases", function () {
+    it("Should allow setting router before launch", async function () {
+      const customRouter = "0x1234567890123456789012345678901234567890";
+
+      await restAI.setRouter(customRouter);
+      expect(await restAI.getRouter()).to.equal(customRouter);
+    });
+
+    it("Should prevent setting router after launch", async function () {
+      await restAI.launch(LAUNCH_TOKENS, { value: LAUNCH_ETH });
+
+      await expect(
+        restAI.setRouter("0x1234567890123456789012345678901234567890")
+      ).to.be.revertedWithCustomError(restAI, "AlreadyLaunched");
+    });
+
+    it("Should prevent setting zero address as router", async function () {
+      await expect(
+        restAI.setRouter(ZeroAddress)
+      ).to.be.revertedWithCustomError(restAI, "ZeroAddress");
+    });
+
+    it("Should only allow manager to set router", async function () {
+      await expect(
+        restAI.connect(user1).setRouter(ROUTER_ADDRESS)
+      ).to.be.reverted;
+    });
+
+    it("Should use default router if not explicitly set", async function () {
+      // Default router should be set in initialize
+      expect(await restAI.getRouter()).to.equal(ROUTER_ADDRESS);
+
+      // Should launch successfully with default router
+      await restAI.launch(LAUNCH_TOKENS, { value: LAUNCH_ETH });
+      expect(await restAI.isLaunched()).to.be.true;
+    });
+
     it("Should handle maximum liquidity launch", async function () {
+      // Reset for this test since previous test launched
+      [owner, manager, user1, user2, user3, operationsWallet, attacker] =
+        await ethers.getSigners();
+
+      const RestAI = await ethers.getContractFactory("RestAI");
+      restAI = (await upgrades.deployProxy(
+        RestAI,
+        [owner.address, operationsWallet.address],
+        { initializer: "initialize" }
+      )) as unknown as RestAI;
+      await restAI.waitForDeployment();
+
+      const MANAGER_ROLE = await restAI.MANAGER_ROLE();
+      await restAI.grantRole(MANAGER_ROLE, manager.address);
       const maxTokens = (TOTAL_SUPPLY * 99n) / 100n; // 99% of supply
       const maxETH = parseEther("1000"); // Large ETH amount
 
@@ -312,7 +362,7 @@ describe("RestAI Comprehensive Scenario Tests", function () {
    * - Sell tax collection (5% default)
    * - Transfer tax when enabled
    * - Tax exemption for excluded addresses
-   * - Maximum fee limits (20% cap)
+   * - Maximum tax limits (20% cap)
    */
   describe("SCENARIO 4: Tax Collection & Distribution", function () {
     beforeEach(async function () {
@@ -398,7 +448,7 @@ describe("RestAI Comprehensive Scenario Tests", function () {
     // Optional feature for additional revenue during high activity
     it("Should collect transfer tax when enabled", async function () {
       // Set transfer tax to 2%
-      await restAI.setFees(300, 500, 200);
+      await restAI.setTaxes(300, 500, 200);
 
       // Give user1 tokens
       await restAI.transfer(user1.address, parseEther("10000"));
@@ -456,25 +506,25 @@ describe("RestAI Comprehensive Scenario Tests", function () {
       expect(await restAI.balanceOf(user2.address)).to.equal(amount);
     });
 
-    // Test: Confirm system accepts maximum allowed fee (20%)
-    // Tests boundary condition for fee settings
-    it("Should handle maximum fee (20%)", async function () {
-      // Set maximum fees
-      await restAI.setFees(2000, 2000, 2000);
+    // Test: Confirm system accepts maximum allowed tax (20%)
+    // Tests boundary condition for tax settings
+    it("Should handle maximum tax (20%)", async function () {
+      // Set maximum taxes
+      await restAI.setTaxes(2000, 2000, 2000);
 
-      // Transfer with max fee
+      // Transfer with max tax
       await restAI.transfer(user1.address, parseEther("1000"));
       await restAI.connect(user1).transfer(user2.address, parseEther("1000"));
 
       expect(await restAI.balanceOf(user2.address)).to.equal(parseEther("800")); // 80% after 20% tax
     });
 
-    // Test: Ensure fees above 20% are rejected
+    // Test: Ensure taxes above 20% are rejected
     // Protects users from excessive taxation
-    it("Should reject fees above maximum", async function () {
+    it("Should reject taxes above maximum", async function () {
       await expect(
-        restAI.setFees(2001, 2000, 2000)
-      ).to.be.revertedWithCustomError(restAI, "FeeTooHigh");
+        restAI.setTaxes(2001, 2000, 2000)
+      ).to.be.revertedWithCustomError(restAI, "TaxTooHigh");
     });
   });
 
@@ -882,7 +932,7 @@ describe("RestAI Comprehensive Scenario Tests", function () {
       await expect(restAI.connect(user1).setLimitsEnabled(false)).to.be
         .reverted;
       await expect(restAI.connect(user1).setTaxesEnabled(false)).to.be.reverted;
-      await expect(restAI.connect(user1).setFees(100, 100, 100)).to.be.reverted;
+      await expect(restAI.connect(user1).setTaxes(100, 100, 100)).to.be.reverted;
 
       // Admin functions
       await expect(restAI.connect(manager).pause()).to.be.reverted;
@@ -1096,10 +1146,10 @@ describe("RestAI Comprehensive Scenario Tests", function () {
     // Test: Verify setting unchanged values doesn't break contract
     // Tests idempotent operations
     it("Should handle setting same values", async function () {
-      const fees = await restAI.fees();
+      const taxes = await restAI.taxes();
 
-      // Setting same fees should work
-      await restAI.setFees(fees.buyFee, fees.sellFee, fees.transferFee);
+      // Setting same taxes should work
+      await restAI.setTaxes(taxes.buyTax, taxes.sellTax, taxes.transferTax);
 
       const limits = await restAI.limits();
 
