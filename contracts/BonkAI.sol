@@ -154,6 +154,13 @@ contract BonkAI is
     event AccountBlocked(address account, bool value);
     event SwapTokenAmountUpdated(uint256 newValue, uint256 oldValue);
     event TreasuryWalletUpdated(address oldWallet, address newWallet);
+    event RouterUpdated(address oldRouter, address newRouter);
+    event SwapAndLiquify(
+        uint256 tokensSwapped,
+        uint256 ethReceived,
+        uint256 tokensIntoLiquidity
+    );
+    event ManualSwapExecuted(uint256 tokenAmount, uint256 ethReceived);
 
     // Custom errors for more explicit reverts
     error AlreadyLaunched();
@@ -563,7 +570,9 @@ contract BonkAI is
     function setRouter(address _router) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (isLaunched) revert AlreadyLaunched(); // keep it pre-launch only (recommended)
         if (_router == address(0)) revert ZeroAddress();
+        address oldRouter = address(swapRouter);
         swapRouter = IUniswapV2Router02(_router);
+        emit RouterUpdated(oldRouter, _router);
     }
 
     /**
@@ -774,7 +783,10 @@ contract BonkAI is
         if (!isLaunched) revert NotLaunched();
         uint256 contractTokenBalance = balanceOf(address(this));
         if (contractTokenBalance == 0) revert NoTokens();
+        uint256 initialEthBalance = address(this).balance;
         _swapTokensForEth(contractTokenBalance);
+        uint256 ethReceived = address(this).balance - initialEthBalance;
+        emit ManualSwapExecuted(contractTokenBalance, ethReceived);
     }
 
     /**
@@ -811,6 +823,9 @@ contract BonkAI is
         uint256 ethBalance = address(this).balance;
         (success, ) = address(treasuryWallet).call{value: ethBalance}("");
         if (!success) revert EthTransferFailed(treasuryWallet, ethBalance);
+
+        // Emit swap event
+        emit SwapAndLiquify(balance, ethBalance, 0);
     }
 
     /**

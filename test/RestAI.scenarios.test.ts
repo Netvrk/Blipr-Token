@@ -785,8 +785,21 @@ describe("RestAI Comprehensive Scenario Tests", function () {
     // Test: Confirm ETH recovery functionality (skipped - needs implementation)
     // Would allow recovery of ETH sent directly to contract
     it("Should withdraw stuck ETH", async function () {
-      // Skip ETH withdrawal test as it has an issue in the contract
-      this.skip();
+      // Send ETH to contract
+      const ethAmount = parseEther("1");
+      await user1.sendTransaction({
+        to: await restAI.getAddress(),
+        value: ethAmount,
+      });
+
+      const ownerBefore = await ethers.provider.getBalance(owner.address);
+
+      await expect(restAI.withdrawTokens(ethers.ZeroAddress))
+        .to.emit(restAI, "WithdrawStuckTokens")
+        .withArgs(ethers.ZeroAddress, ethAmount);
+
+      const ownerAfter = await ethers.provider.getBalance(owner.address);
+      expect(ownerAfter).to.be.greaterThan(ownerBefore);
     });
 
     // Test: Verify recovery of non-native tokens sent by mistake

@@ -376,8 +376,8 @@ contract RestAI is
         address[] calldata accounts,
         bool value
     ) external onlyRole(MANAGER_ROLE) {
-        require(accounts.length > 0, EmptyArray());
-        require(accounts.length <= 100, BatchSizeExceeded(accounts.length, 100));
+        require(accounts.length > 0, "EmptyArray");
+        require(accounts.length <= 100, "BatchSizeExceeded");
         for (uint256 i = 0; i < accounts.length; i++) {
             _excludeFromLimits(accounts[i], value);
         }
@@ -391,8 +391,8 @@ contract RestAI is
         address[] calldata accounts,
         bool value
     ) external onlyRole(MANAGER_ROLE) {
-        require(accounts.length > 0, EmptyArray());
-        require(accounts.length <= 100, BatchSizeExceeded(accounts.length, 100));
+        require(accounts.length > 0, "EmptyArray");
+        require(accounts.length <= 100, "BatchSizeExceeded");
         for (uint256 i = 0; i < accounts.length; i++) {
             _excludeFromTax(accounts[i], value);
         }
