@@ -47,7 +47,7 @@ PRIVATE_KEY=your_private_key_here
 
 # RPC Endpoints
 ETHEREUM_RPC_URL=https://mainnet.infura.io/v3/your_infura_key
-BASE_RPC_URL=https://mainnet.base.org
+BASE_RPC_URL=https://base.gateway.tenderly.co
 
 # Etherscan/Basescan API keys for verification
 ETHERSCAN_API_KEY=your_etherscan_api_key

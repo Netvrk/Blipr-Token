@@ -18,14 +18,14 @@ const config: HardhatUserConfig = {
   networks: {
     hardhat: {
       forking: {
-        url: "https://base.gateway.tenderly.co",
+        url: process.env.BASE_RPC_URL || "https://base.gateway.tenderly.co",
       },
       accounts: {
         mnemonic: "test test test test test test test test test test test junk",
       },
     },
     base: {
-      url: "https://base.gateway.tenderly.co",
+      url: process.env.BASE_RPC_URL || "https://base.gateway.tenderly.co",
       accounts:
         process.env.PRIVATE_KEY_1 !== undefined
           ? [process.env.PRIVATE_KEY_1]
