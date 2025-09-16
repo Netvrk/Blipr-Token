@@ -678,7 +678,7 @@ contract BonkAI is
         if (isBlocked[from]) revert AccountIsBlocked(from);
         if (isBlocked[to]) revert AccountIsBlocked(to);
 
-        // Step 3: Check if limits should be applied
+        // Step 3: Check if limits should be applied0x4752ba5DBc23f44D87826276BF6Fd6b1C372aD24
         bool applyLimits = isLimitsEnabled &&
             !inSwapBack &&
             !(isExcludedFromLimits[from] || isExcludedFromLimits[to]);
@@ -686,20 +686,28 @@ contract BonkAI is
         if (applyLimits) {
             // Buy transaction: from AMM pair to user
             if (automatedMarketMakerPairs[from] && !isExcludedFromLimits[to]) {
-                if (amount > limits.maxBuy) revert BuyAmountExceedsLimit(amount, limits.maxBuy);
+                if (amount > limits.maxBuy)
+                    revert BuyAmountExceedsLimit(amount, limits.maxBuy);
                 if (amount + balanceOf(to) > limits.maxWallet)
-                    revert WalletAmountExceedsLimit(amount + balanceOf(to), limits.maxWallet);
+                    revert WalletAmountExceedsLimit(
+                        amount + balanceOf(to),
+                        limits.maxWallet
+                    );
             }
             // Sell transaction: from user to AMM pair
             else if (
                 automatedMarketMakerPairs[to] && !isExcludedFromLimits[from]
             ) {
-                if (amount > limits.maxSell) revert SellAmountExceedsLimit(amount, limits.maxSell);
+                if (amount > limits.maxSell)
+                    revert SellAmountExceedsLimit(amount, limits.maxSell);
             }
             // P2P transfer: enforce wallet limit for recipient
             else if (!isExcludedFromLimits[to]) {
                 if (amount + balanceOf(to) > limits.maxWallet)
-                    revert WalletAmountExceedsLimit(amount + balanceOf(to), limits.maxWallet);
+                    revert WalletAmountExceedsLimit(
+                        amount + balanceOf(to),
+                        limits.maxWallet
+                    );
             }
         }
 
