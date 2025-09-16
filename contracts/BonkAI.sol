@@ -156,19 +156,27 @@ contract BonkAI is
 
     // Custom errors for more explicit reverts
     error AlreadyLaunched();
-    error AmountOutOfBounds();
-    error FeeTooHigh();
+    error FeeTooHigh(uint256 provided, uint256 maximum);
     error NoTokens();
-    error FailedToWithdrawTokens();
+    error FailedToWithdrawTokens(address token);
     error NotLaunched();
-    error AccountBlockedFromTransfer();
-    error AmountTooSmall();
-    error AmountTooLarge();
+    error AccountIsBlocked(address account);
     error ZeroTokenAmount();
     error ZeroEthAmount();
-    error InsufficientToken();
+    error InsufficientTokenBalance(uint256 required, uint256 available);
     error ZeroAddress();
-    error EthTransferFailed();
+    error EthTransferFailed(address recipient, uint256 amount);
+
+    // Specific limit errors for better debugging
+    error BuyAmountExceedsLimit(uint256 amount, uint256 maxBuy);
+    error SellAmountExceedsLimit(uint256 amount, uint256 maxSell);
+    error WalletAmountExceedsLimit(uint256 newBalance, uint256 maxWallet);
+    error LimitOutOfRange(uint256 provided, uint256 min, uint256 max);
+    error SwapThresholdOutOfRange(uint256 provided, uint256 min, uint256 max);
+
+    // Batch operation errors
+    error EmptyArray();
+    error BatchSizeExceeded(uint256 provided, uint256 maximum);
 
     // ═══════════════════════════════════════════════════════════════════════════
     // SWAP & LIQUIDITY MANAGEMENT
@@ -299,7 +307,7 @@ contract BonkAI is
         if (isLaunched) revert AlreadyLaunched();
         if (tokenAmount == 0) revert ZeroTokenAmount();
         if (msg.value == 0) revert ZeroEthAmount();
-        if (balanceOf(msg.sender) < tokenAmount) revert InsufficientToken();
+        if (balanceOf(msg.sender) < tokenAmount) revert InsufficientTokenBalance(tokenAmount, balanceOf(msg.sender));
 
         // Set up router
         swapRouter = IUniswapV2Router02(
@@ -386,7 +394,7 @@ contract BonkAI is
             newBuyFee > MAX_FEE ||
             newSellFee > MAX_FEE ||
             newTransferFee > MAX_FEE
-        ) revert FeeTooHigh();
+        ) revert FeeTooHigh(newBuyFee > MAX_FEE ? newBuyFee : (newSellFee > MAX_FEE ? newSellFee : newTransferFee), MAX_FEE);
         fees = Fees({
             buyFee: uint16(newBuyFee),
             sellFee: uint16(newSellFee),
@@ -415,15 +423,15 @@ contract BonkAI is
         if (
             newMaxBuy < (_totalSupply * 1) / DENM ||
             newMaxBuy > (_totalSupply * 1000) / DENM
-        ) revert AmountOutOfBounds(); // 0.01% to 10%
+        ) revert LimitOutOfRange(newMaxBuy, (_totalSupply * 1) / DENM, (_totalSupply * 1000) / DENM); // 0.01% to 10%
         if (
             newMaxSell < (_totalSupply * 1) / DENM ||
             newMaxSell > (_totalSupply * 1000) / DENM
-        ) revert AmountOutOfBounds(); // 0.01% to 10%
+        ) revert LimitOutOfRange(newMaxSell, (_totalSupply * 1) / DENM, (_totalSupply * 1000) / DENM); // 0.01% to 10%
         if (
             newMaxWallet < (_totalSupply * 1) / DENM ||
             newMaxWallet > (_totalSupply * 1000) / DENM
-        ) revert AmountOutOfBounds(); // 0.01% to 10%
+        ) revert LimitOutOfRange(newMaxWallet, (_totalSupply * 1) / DENM, (_totalSupply * 1000) / DENM); // 0.01% to 10%
 
         limits = Limits({
             maxBuy: uint128(newMaxBuy),
@@ -511,8 +519,8 @@ contract BonkAI is
      */
     function setTokensForSwap(uint256 amount) external onlyRole(MANAGER_ROLE) {
         uint256 totalSupplyTokens = totalSupply();
-        if (amount < (totalSupplyTokens * 1) / DENM) revert AmountTooSmall(); // Min: 0.01%
-        if (amount > (totalSupplyTokens * 500) / DENM) revert AmountTooLarge(); // Max: 5%
+        if (amount < (totalSupplyTokens * 1) / DENM) revert SwapThresholdOutOfRange(amount, (totalSupplyTokens * 1) / DENM, (totalSupplyTokens * 500) / DENM); // Min: 0.01%
+        if (amount > (totalSupplyTokens * 500) / DENM) revert SwapThresholdOutOfRange(amount, (totalSupplyTokens * 1) / DENM, (totalSupplyTokens * 500) / DENM); // Max: 5%
         uint256 oldValue = swapTokensAtAmount;
         swapTokensAtAmount = amount;
         emit SwapTokenAmountUpdated(amount, oldValue);
@@ -543,8 +551,8 @@ contract BonkAI is
         address[] calldata accounts,
         bool value
     ) external onlyRole(MANAGER_ROLE) {
-        require(accounts.length > 0, "Empty array");
-        require(accounts.length <= MAX_BATCH_SIZE, "Batch too large");
+        if (accounts.length == 0) revert EmptyArray();
+        if (accounts.length > MAX_BATCH_SIZE) revert BatchSizeExceeded(accounts.length, MAX_BATCH_SIZE);
 
         for (uint256 i = 0; i < accounts.length; i++) {
             _excludeFromLimits(accounts[i], value);
@@ -560,8 +568,8 @@ contract BonkAI is
         address[] calldata accounts,
         bool value
     ) external onlyRole(MANAGER_ROLE) {
-        require(accounts.length > 0, "Empty array");
-        require(accounts.length <= MAX_BATCH_SIZE, "Batch too large");
+        if (accounts.length == 0) revert EmptyArray();
+        if (accounts.length > MAX_BATCH_SIZE) revert BatchSizeExceeded(accounts.length, MAX_BATCH_SIZE);
 
         for (uint256 i = 0; i < accounts.length; i++) {
             _excludeFromTax(accounts[i], value);
@@ -591,7 +599,7 @@ contract BonkAI is
             amount = address(this).balance;
             if (amount == 0) revert NoTokens();
             (bool success, ) = address(msg.sender).call{value: amount}("");
-            if (!success) revert FailedToWithdrawTokens();
+            if (!success) revert FailedToWithdrawTokens(address(0));
         } else if (_token == address(this)) {
             // Withdraw this contract's own tokens
             amount = balanceOf(address(this));
@@ -602,7 +610,7 @@ contract BonkAI is
             amount = IERC20(_token).balanceOf(address(this));
             if (amount == 0) revert NoTokens();
             bool success = IERC20(_token).transfer(msg.sender, amount);
-            if (!success) revert FailedToWithdrawTokens();
+            if (!success) revert FailedToWithdrawTokens(_token);
         }
 
         emit WithdrawStuckTokens(_token, amount);
@@ -632,6 +640,7 @@ contract BonkAI is
         virtual
         override(ERC20Upgradeable, ERC20PausableUpgradeable)
         whenNotPaused
+        nonReentrant
     {
         // Step 1: Verify trading is enabled (unless excluded addresses)
         if (
@@ -642,7 +651,7 @@ contract BonkAI is
 
         // Step 2: Enforce blacklist
         if (isBlocked[from] || isBlocked[to])
-            revert AccountBlockedFromTransfer();
+            revert AccountIsBlocked(isBlocked[from] ? from : to);
 
         // Step 3: Check if limits should be applied
         bool applyLimits = isLimitsEnabled &&
@@ -652,20 +661,20 @@ contract BonkAI is
         if (applyLimits) {
             // Buy transaction: from AMM pair to user
             if (automatedMarketMakerPairs[from] && !isExcludedFromLimits[to]) {
-                if (amount > limits.maxBuy) revert AmountOutOfBounds();
+                if (amount > limits.maxBuy) revert BuyAmountExceedsLimit(amount, limits.maxBuy);
                 if (amount + balanceOf(to) > limits.maxWallet)
-                    revert AmountOutOfBounds();
+                    revert WalletAmountExceedsLimit(amount + balanceOf(to), limits.maxWallet);
             }
             // Sell transaction: from user to AMM pair
             else if (
                 automatedMarketMakerPairs[to] && !isExcludedFromLimits[from]
             ) {
-                if (amount > limits.maxSell) revert AmountOutOfBounds();
+                if (amount > limits.maxSell) revert SellAmountExceedsLimit(amount, limits.maxSell);
             }
             // P2P transfer: enforce wallet limit for recipient
             else if (!isExcludedFromLimits[to]) {
                 if (amount + balanceOf(to) > limits.maxWallet)
-                    revert AmountOutOfBounds();
+                    revert WalletAmountExceedsLimit(amount + balanceOf(to), limits.maxWallet);
             }
         }
 
@@ -768,7 +777,7 @@ contract BonkAI is
         // Transfer all ETH to operations wallet
         uint256 ethBalance = address(this).balance;
         (success, ) = address(operationsWallet).call{value: ethBalance}("");
-        if (!success) revert EthTransferFailed();
+        if (!success) revert EthTransferFailed(operationsWallet, ethBalance);
     }
 
     /**
